@@ -5,11 +5,16 @@ enum CheckDump {
         guard ProcessInfo.processInfo.environment["APP_CHECK"] == "1" else { return }
         Task {
             let report = await Machine.inspect(home: FileManager.default.homeDirectoryForCurrentUser)
+            print("CHECK route=\(report.routeInterface ?? "-") tunnel=\(report.routeIsTunnel) physical=\(report.routeIsPhysical) skipped=\(report.traceSkipped)")
             print("CHECK ip=\(report.ip ?? "-") loc=\(report.loc ?? "-")")
+            print("CHECK chatgpt=\(report.chatgptIP ?? "-") loc=\(report.chatgptLoc ?? "-") error=\(report.chatgptError ?? "-")")
             print("CHECK shell=\(report.shell.map { "\($0.file):\($0.name)" }.joined(separator: ","))")
             print("CHECK launchctl=\(report.launchctl.joined(separator: ","))")
-            print("CHECK settings=\(report.settingsKeys.joined(separator: ",")) missing=\(report.settingsMissing) error=\(report.settingsError ?? "-")")
-            print("CHECK ipv6Blocked=\(report.ipv6Blocked) ipv6=\(report.ipv6IP ?? "-") loc=\(report.ipv6Loc ?? "-")")
+            print("CHECK configs=\(report.configHits.map { "\($0.file):\($0.keys.joined(separator: "+"))" }.joined(separator: ","))")
+            print("CHECK codex=\(report.codexKeys.joined(separator: ",")) missing=\(report.codexMissing) error=\(report.codexError ?? "-")")
+            print("CHECK proxy=\(report.proxyEnabled.joined(separator: ","))")
+            print("CHECK sockets=\(report.socketLeaks.map { "\($0.pid):\($0.localAddress)" }.joined(separator: ","))")
+            print("CHECK ipv6Blocked=\(report.ipv6Blocked) skipped=\(report.ipv6Skipped) ipv6=\(report.ipv6IP ?? "-") loc=\(report.ipv6Loc ?? "-")")
             print("CHECK dns=\(report.nameservers.prefix(4).joined(separator: ","))")
             print("CHECK zone=\(report.timeZone)")
             print("CHECK traceError=\(report.traceError ?? "-")")

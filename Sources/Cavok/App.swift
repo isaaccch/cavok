@@ -75,6 +75,7 @@ struct CavokApp: App {
 
         Settings {
             MenuBarSettings()
+                .environment(store)
         }
     }
 }

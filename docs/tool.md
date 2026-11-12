@@ -18,17 +18,31 @@ Each row is one check. A warning is an orange triangle. A clear row is a green c
 
 | Row | What it measures | Why it matters | What the button does |
 |---|---|---|---|
-| Exit IP | The IPv4 address and country in `https://claude.ai/cdn-cgi/trace` (`ip=` and `loc=`). This is the address Claude's edge sees, not the address a speed-test site sees. | An exit in HK, CN, or MO is outside the regions this setup is using. A new address after you pinned one means the account's next visit is a different IP. Cavok cannot switch Surfshark. | **Pin this IP** saves the address on this Mac. Later checks compare against it. |
+| Tunnel route | `route -n get 1.1.1.1`, then the `interface:` line. `utun`, `ipsec`, `ppp`, and `wg` count as a tunnel. Wi-Fi and Ethernet do not. The same lookup is done for IPv6 with `2606:4700:4700::1111`. | The lookup does not send a packet. `route -n get default` can still say `en0` when a WireGuard-style tunnel has installed `0.0.0.0/1` and `128.0.0.0/1`. If this row is Wi-Fi or Ethernet, Cavok does not call `claude.ai` or `chatgpt.com`. | None. |
+| Exit IP | The IPv4 address and country in `https://claude.ai/cdn-cgi/trace` (`ip=` and `loc=`), and only after the route is a tunnel. | An exit in HK, CN, or MO is outside the regions this setup is using. A new address after you pinned one means the account's next visit is a different IP. Cavok cannot switch Surfshark. | **Pin this IP** saves the address on this Mac. Later checks compare against it. |
+| ChatGPT exit | `ip=` and `loc=` from `https://chatgpt.com/cdn-cgi/trace`. It is not copied from the Claude result. | A split tunnel can send ChatGPT somewhere else while Claude still looks fine. | None. A different address than the pin, or HK, CN, or MO, is a warning. |
 | Shell startup files | Assignments and `launchctl setenv` lines in `~/.zshenv`, `~/.zprofile`, `~/.zshrc`, `~/.bash_profile`, `~/.bashrc`, and `~/.profile`. | A leftover `HTTPS_PROXY` or `ANTHROPIC_BASE_URL` can send `claude` or `codex` somewhere other than the Surfshark tunnel, including a third-party relay. | **Comment out** comments those lines and saves a copy as `.cavok-bak` beside the file. Open a new terminal afterward. |
 | Login environment | `launchctl getenv` for proxy variables and `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `OPENAI_API_BASE`. | Apps launched from the Dock, including Claude, inherit this environment. A value here can override the tunnel for GUI apps even when Terminal looks fine. | **Remove** runs `launchctl unsetenv` for the names it found. It does not print the values. |
-| Claude Code settings | The `env` object in `~/.claude/settings.json` only. Project `.claude` files are left alone. | A base URL that is not `api.anthropic.com` or `api.openai.com` sends Claude Code through a relay. Claude Code still phones home and reports that host. | **Remove** drops proxy keys, and drops a non-official base URL. A token is removed only when that same `env` object points at a non-official host. An official base URL and its token stay. A copy is saved as `settings.json.cavok-bak`. |
-| IPv6 | A separate request, `curl -6`, to the same Claude trace URL. | If IPv4 is Japan and IPv6 is HK, CN, MO, or any other country, Claude can see the home address on the IPv6 path while a browser test still shows Japan. | **Set link-local** runs `networksetup -setv6LinkLocal` on Wi-Fi, Ethernet, and other non-Surfshark services. macOS asks for a password. **Restore automatic** appears only after Cavok made that change. |
+| Claude configs | The `env` object in `~/.claude/settings.json`. Proxy and base-URL keys in `~/.claude.json`, including MCP server `env` blocks. `.claude/settings.json` and `.claude/settings.local.json` up to four levels under the folders in Settings. `node_modules`, `.git`, `.build`, `DerivedData`, and `Library` are skipped. | A project file overrides `~/.claude/settings.json`. A base URL that is not an Anthropic or OpenAI host sends the CLI through a relay. | **Remove** drops proxy keys, and drops a non-official base URL. A token is removed only when that same object points at a non-official host. An official base URL and its token stay. Each changed file is copied to `.cavok-bak`. |
+| Codex config | `openai_base_url`, `chatgpt_base_url`, and `base_url` inside `[model_providers…]` in `~/.codex/config.toml` (`$CODEX_HOME` when that is set). | Codex uses this file for a custom API host. A project `.env` is not read. | **Comment out** comments the non-official lines and saves `config.toml.cavok-bak`. |
+| System proxy | `HTTPEnable`, `HTTPSEnable`, `SOCKSEnable`, `ProxyAutoConfigEnable`, and `ProxyAutoDiscoveryEnable` from `scutil --proxy`. | `Claude.app` follows the macOS proxy even when `launchctl` is empty. | **Turn off** runs `networksetup` on Wi-Fi and Ethernet. Surfshark is left alone. macOS asks for a password. |
+| Open app sockets | `lsof` for the PIDs whose command line is Claude.app, ChatGPT.app, `claude`, or `codex` (including `node …/claude` and `codex-aarch64-apple-darwin`). A hit is an open connection whose local address belongs to Wi-Fi or Ethernet. | A connection opened before the VPN can stay on the physical interface. Loopback is ignored. | **Quit apps** force-quits those processes. |
+| IPv6 | A separate request, `curl -6`, to the Claude trace URL, only when the IPv6 route is a tunnel. | If IPv4 is Japan and IPv6 is on Wi-Fi, Claude can see the home address on the IPv6 path. Cavok does not send the probe in that case. | **Set link-local** runs `networksetup -setv6LinkLocal` on Wi-Fi, Ethernet, and other non-Surfshark services. macOS asks for a password. **Restore automatic** appears only after Cavok made that change. |
 | DNS cache | Nameservers from `scutil --dns`, before the "scoped queries" section. | Shows which resolvers the system is using. It does not decide that DNS is leaking. A router address that only serves the local network is not in this list. | **Flush** clears the cache with `dscacheutil` and `mDNSResponder`. It does not change which resolver you use. |
 | Time zone | `TimeZone.current` on this Mac. | A clock that does not match the exit is a mismatch people talk about. Cavok does not treat Hong Kong time as a failure. | **Set to Tokyo** sets `Asia/Tokyo`, turns automatic time zone off, and remembers the previous zone. **Restore** puts that zone back and turns automatic time zone on again. macOS asks for a password. |
 
-**Clean leftovers** runs the shell, login-environment, and Claude settings fixes together. It stays off when those three rows are already clear. It does not change IPv6, DNS, the time zone, or the pinned IP.
+**Clean leftovers** runs the shell, login-environment, Claude config, and Codex config fixes together. It stays off when those rows are already clear. It does not change IPv6, DNS, the system proxy, the time zone, or the pinned IP.
 
-**Open Claude** opens `Claude.app` if it is installed, otherwise `https://claude.ai`. It stays off while the exit country is HK, CN, or MO, or while the exit IP could not be read.
+**Open Claude** opens `Claude.app` if it is installed, otherwise `https://claude.ai`. It stays off while the route is not a tunnel, while either exit country is HK, CN, or MO, while a socket is on Wi-Fi or Ethernet, or while the Claude exit IP could not be read.
+
+**Guard** is a switch in the menu bar and in Settings. It is on until you turn it off.
+
+- When the network path changes, Cavok reads `route -n get 1.1.1.1` immediately. If that interface is Wi-Fi or Ethernet, Guard force-quits Claude, ChatGPT, `claude`, and `codex`.
+- If the route is still a tunnel, Cavok waits 2.5 seconds and runs a full check, so a Surfshark reconnect can finish before the trace.
+- A completed trace of HK, CN, or MO on Claude or ChatGPT force-quits the same processes. A timeout does not. A new IP in an allowed country does not.
+- While the route or the exit stays blocked, Guard checks about once a second and force-quits a `claude` or `codex` process started from a terminal. npm `claude` is matched on its command line, because the process name is `node`.
+- Sleep quits those processes with a normal quit, before the tunnel drops. Lid-close does not use force-quit.
+- Launching Claude.app or ChatGPT.app while the current check is blocked force-quits them.
 
 ## How a warning lines up with ban risk
 
@@ -36,8 +50,11 @@ Each row is one check. A warning is an orange triangle. A clear row is a green c
 |---|---|
 | Exit country is HK, CN, or MO | This visit came from an unsupported region, on top of whatever country the account was created in. |
 | Pinned IP does not match | The same account showed up from a different address than last time. One change is ordinary. A new Surfshark server every day is the pattern Cavok is there to show you. |
-| Shell, login environment, or Claude settings | Traffic or the API host is not the official one. A relay base URL is the case that has gotten subscription accounts banned quickly. |
-| IPv6 country differs, or is HK, CN, or MO | One path is the VPN and the other is not. The account can receive both. |
+| Tunnel route is Wi-Fi or Ethernet | The next packet can leave from the home address. Cavok has not sent a probe yet. |
+| ChatGPT address differs from the pin or from Claude | Codex or the ChatGPT app can be on a different path from Claude. |
+| Shell, login environment, Claude configs, Codex config, or system proxy | Traffic or the API host is not the official one. A relay base URL is the case that has gotten subscription accounts banned quickly. |
+| A socket is on Wi-Fi or Ethernet | A connection opened before the VPN is still using the physical interface. |
+| IPv6 route is not a tunnel, or the IPv6 country differs | One path is the VPN and the other is not. The account can receive both. |
 | Time zone is not Tokyo | Nothing by itself. The button is there if you want the clock to match a Japan exit. |
 
 ## What Cavok does not check
@@ -48,22 +65,22 @@ These can still get an account flagged. Cavok has no row for them.
 - The Claude or ChatGPT phone apps. A phone on home Wi-Fi writes that address onto the same account.
 - Surfshark's Kill Switch, IP Rotator, Bypasser, or which server you picked. Cavok only sees the address that comes out.
 - Whether the address is a VPN, a datacenter, or a home connection. A purity score from another site is not a Cavok check.
-- ChatGPT as its own path. The exit row is the Claude trace only. A split tunnel can send `chatgpt.com` somewhere else.
+- HTTP/3 as its own path. The route check covers the interface. It does not open a QUIC connection.
 - WebRTC, abuse lists, and payment history.
 - What you type in a chat. Usage Policy and Terms violations are outside this app.
-- Project-level `.claude/settings.local.json` files. Only `~/.claude/settings.json` is read.
+- Folders you have not added. Settings starts with Projects and Developer when those exist. Desktop is not scanned until you add it.
 
-A timeout stays a failure to measure. Cavok does not turn a failed request into a green check.
+A timeout stays a failure to measure. Cavok does not turn a failed request into a green check, and Guard does not quit apps because a trace timed out.
 
 ## Where the data stays
 
-The exit check is one request to `claude.ai` and one IPv6 attempt. Nothing is uploaded to a Cavok server. The pinned IP, the saved time zone, and the "IPv6 was changed" flag live in this Mac's preferences. File edits are backed up next to the original as `.cavok-bak` before they are written.
+When the route is a tunnel, the exit check is one IPv4 request to `claude.ai`, one IPv4 request to `chatgpt.com`, and one IPv6 request to `claude.ai` if that route is a tunnel too. Nothing is uploaded to a Cavok server. The pinned IP, the saved time zone, the Guard switch, the project folders, and the "IPv6 was changed" flag live in this Mac's preferences. File edits are backed up next to the original as `.cavok-bak` before they are written.
 
 ## Using it
 
-The window and the menu-bar icon show the same checks. The icon shows the exit country, such as `JP`, while a check has a country.
+The window and the menu-bar icon show the same checks. The icon shows the exit country, such as `JP`, while a check has a country. It shows `LAN` when the IPv4 route is Wi-Fi or Ethernet.
 
-Closing the window leaves the icon in place. **Open Window** in the panel, or **Show Cavok** in the Dock menu, brings the window back. **Quit** in the panel quits the app. Settings has one switch, **Show Cavok in the menu bar**.
+Closing the window leaves the icon in place. **Open Window** in the panel, or **Show Cavok** in the Dock menu, brings the window back. **Quit** in the panel quits the app. Settings has the menu-bar switch, the Guard switch, and the project-folder list.
 
 Check Again is Command-R in the app menu. The Dock menu has Check Again too.
 

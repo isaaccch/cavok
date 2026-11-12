@@ -1,4 +1,6 @@
+import AppKit
 import CavokKit
+import Darwin
 import Foundation
 
 struct Exec: Sendable {
@@ -10,15 +12,29 @@ struct Exec: Sendable {
 struct MachineReport: Sendable {
     var shell: [ShellHit] = []
     var launchctl: [String] = []
-    var settingsKeys: [String] = []
-    var settingsMissing = false
-    var settingsError: String?
+    var configHits: [ConfigHit] = []
+    var codexKeys: [String] = []
+    var codexMissing = false
+    var codexError: String?
+    var routeInterface: String?
+    var routeIsTunnel = false
+    var routeIsPhysical = false
+    var routeError: String?
+    var ipv6RouteInterface: String?
+    var ipv6RouteIsPhysical = false
     var ip: String?
     var loc: String?
     var traceError: String?
+    var traceSkipped = false
+    var chatgptIP: String?
+    var chatgptLoc: String?
+    var chatgptError: String?
     var ipv6IP: String?
     var ipv6Loc: String?
     var ipv6Blocked = true
+    var ipv6Skipped = false
+    var proxyEnabled: [String] = []
+    var socketLeaks: [SocketLeak] = []
     var nameservers: [String] = []
     var timeZone = TimeZone.current.identifier
 }
@@ -43,10 +59,75 @@ enum System {
         return Exec(stdout: stdout, stderr: stderr, code: process.terminationStatus)
     }
 
-    nonisolated static func curlTrace(ipv6: Bool) -> Exec {
-        var args = ["-sS", "--max-time", ipv6 ? "5" : "8", "https://claude.ai/cdn-cgi/trace"]
+    nonisolated static func curlTrace(url: String, ipv6: Bool) -> Exec {
+        var args = ["-sS", "--max-time", "5", url]
         args.insert(ipv6 ? "-6" : "-4", at: 0)
         return run("/usr/bin/curl", args)
+    }
+
+    nonisolated static func routeLookup(_ destination: String, inet6: Bool = false) -> Exec {
+        var args = ["-n", "get"]
+        if inet6 { args.append("-inet6") }
+        args.append(destination)
+        return run("/sbin/route", args)
+    }
+
+    nonisolated static func protectedProcesses() -> [ProtectedProcess] {
+        let listed = run("/bin/ps", ["-axo", "pid=,comm=,args="])
+        let selfPid = ProcessInfo.processInfo.processIdentifier
+        return ProcessMatch.protected(in: listed.stdout).filter { $0.pid != selfPid }
+    }
+
+    /// Quits Claude, ChatGPT, claude, and codex. `force` is SIGKILL. Sleep uses a normal quit so the tunnel is still up.
+    @discardableResult
+    nonisolated static func terminateProtected(force: Bool) -> [String] {
+        let found = protectedProcesses()
+        let apps = NSWorkspace.shared.runningApplications.filter { app in
+            let path = app.bundleURL?.path ?? ""
+            return path.contains("Claude.app") || path.contains("ChatGPT.app")
+        }
+        for app in apps {
+            if force { app.forceTerminate() } else { app.terminate() }
+        }
+        let signal: Int32 = force ? SIGKILL : SIGTERM
+        for process in found {
+            kill(process.pid, signal)
+        }
+        var labels = found.map(\.label)
+        if apps.contains(where: { $0.bundleURL?.path.contains("Claude.app") == true }), !labels.contains("Claude") {
+            labels.append("Claude")
+        }
+        if apps.contains(where: { $0.bundleURL?.path.contains("ChatGPT.app") == true }), !labels.contains("ChatGPT") {
+            labels.append("ChatGPT")
+        }
+        return Array(Set(labels)).sorted()
+    }
+
+    nonisolated static func socketLeaks(for processes: [ProtectedProcess]) -> [SocketLeak] {
+        guard !processes.isEmpty else { return [] }
+        let ports = run("/usr/sbin/networksetup", ["-listallhardwareports"])
+        let hardware = RouteParse.hardwareDevices(in: ports.stdout)
+        let interfaces = run("/sbin/ifconfig", ["-a"])
+        let physical = IfconfigParse.addresses(in: interfaces.stdout, hardware: hardware)
+        let pidList = processes.map { String($0.pid) }.joined(separator: ",")
+        let listed = run("/usr/sbin/lsof", ["-a", "-p", pidList, "-i", "-n", "-P", "-F", "pcn"])
+        return SocketAudit.leaks(in: listed.stdout, physicalIPs: physical)
+    }
+
+    nonisolated static func disableProxies() -> Exec {
+        let lines = services().flatMap { service in
+            [
+                "-setwebproxystate",
+                "-setsecurewebproxystate",
+                "-setsocksfirewallproxystate",
+                "-setautoproxystate",
+                "-setproxyautodiscovery",
+            ].map { flag in
+                "/usr/sbin/networksetup \(flag) \(bashQuote(service)) off"
+            }
+        }
+        guard !lines.isEmpty else { return Exec(stderr: "No Wi-Fi or Ethernet service to change.", code: 1) }
+        return admin(lines.joined(separator: "\n"))
     }
 
     nonisolated static func launchctlSet() -> [String] {
@@ -138,18 +219,6 @@ enum HomeFiles {
         return notes.joined(separator: "; ")
     }
 
-    nonisolated static func peekSettings(_ home: URL) -> (missing: Bool, keys: [String], error: String?) {
-        let url = home.appendingPathComponent(".claude/settings.json")
-        guard FileManager.default.fileExists(atPath: url.path) else { return (true, [], nil) }
-        do {
-            let data = try Data(contentsOf: url)
-            let edit = try SettingsCleaner.cleaning(data)
-            return (false, edit.removed, nil)
-        } catch {
-            return (false, [], "Could not read ~/.claude/settings.json.")
-        }
-    }
-
     nonisolated static func cleanSettings(_ home: URL) throws -> String {
         let url = home.appendingPathComponent(".claude/settings.json")
         let data = try Data(contentsOf: url)
@@ -165,23 +234,154 @@ enum HomeFiles {
     }
 }
 
+enum ConfigFiles {
+    nonisolated static func hits(home: URL, roots: [URL]) -> [ConfigHit] {
+        var hits: [ConfigHit] = []
+        let global = home.appendingPathComponent(".claude/settings.json")
+        if FileManager.default.fileExists(atPath: global.path) {
+            hits.append(ProjectSettingsScanner.hit(at: global))
+        }
+        let state = home.appendingPathComponent(".claude.json")
+        if FileManager.default.fileExists(atPath: state.path) {
+            hits.append(claudeState(at: state))
+        }
+        hits.append(contentsOf: ProjectSettingsScanner.scan(roots: roots).filter { !$0.keys.isEmpty || $0.error != nil })
+        return hits
+    }
+
+    nonisolated static func clean(home: URL, roots: [URL]) throws -> String {
+        var notes: [String] = []
+        let global = home.appendingPathComponent(".claude/settings.json")
+        if FileManager.default.fileExists(atPath: global.path) {
+            let cleaned = try HomeFiles.cleanSettings(home)
+            if !cleaned.isEmpty { notes.append("~/.claude/settings.json (\(cleaned))") }
+        }
+        let state = home.appendingPathComponent(".claude.json")
+        if FileManager.default.fileExists(atPath: state.path) {
+            let cleaned = try writeJSON(state, edit: ClaudeStateScanner.cleaning)
+            if !cleaned.isEmpty { notes.append("~/.claude.json (\(cleaned))") }
+        }
+        for hit in ProjectSettingsScanner.scan(roots: roots) where !hit.keys.isEmpty && hit.error == nil {
+            let url = URL(fileURLWithPath: expand(hit.file, home: home))
+            let cleaned = try writeJSON(url, edit: SettingsCleaner.cleaning)
+            if !cleaned.isEmpty { notes.append("\(hit.file) (\(cleaned))") }
+        }
+        return notes.joined(separator: "; ")
+    }
+
+    nonisolated static func codexURL(home: URL) -> URL {
+        if let env = ProcessInfo.processInfo.environment["CODEX_HOME"], !env.isEmpty {
+            return URL(fileURLWithPath: env).appendingPathComponent("config.toml")
+        }
+        return home.appendingPathComponent(".codex/config.toml")
+    }
+
+    nonisolated static func codexKeys(home: URL) -> (missing: Bool, keys: [String], error: String?) {
+        let url = codexURL(home: home)
+        guard FileManager.default.fileExists(atPath: url.path) else { return (true, [], nil) }
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+            return (false, [], "Could not read \(PathDisplay.abbreviate(url.path)).")
+        }
+        return (false, CodexConfig.hits(in: text), nil)
+    }
+
+    nonisolated static func cleanCodex(home: URL, date: String) throws -> String {
+        let url = codexURL(home: home)
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return "" }
+        let edit = CodexConfig.commenting(text, date: date)
+        guard !edit.removed.isEmpty else { return "" }
+        try backup(url)
+        try Data(edit.text.utf8).write(to: url, options: .atomic)
+        return edit.removed.joined(separator: ", ")
+    }
+
+    nonisolated private static func claudeState(at url: URL) -> ConfigHit {
+        let file = PathDisplay.abbreviate(url.path)
+        do {
+            let data = try Data(contentsOf: url)
+            let keys = try ClaudeStateScanner.hits(in: data)
+            return ConfigHit(file: file, keys: keys)
+        } catch {
+            return ConfigHit(file: file, keys: [], error: "Could not read \(file).")
+        }
+    }
+
+    nonisolated private static func writeJSON(_ url: URL, edit: (Data) throws -> SettingsEdit) throws -> String {
+        let data = try Data(contentsOf: url)
+        let edit = try edit(data)
+        guard let written = edit.data else { return "" }
+        try backup(url)
+        try written.write(to: url, options: .atomic)
+        return edit.removed.sorted().joined(separator: ", ")
+    }
+
+    nonisolated private static func backup(_ url: URL) throws {
+        let backup = URL(fileURLWithPath: url.path + ".cavok-bak")
+        if FileManager.default.fileExists(atPath: backup.path) {
+            try FileManager.default.removeItem(at: backup)
+        }
+        try FileManager.default.copyItem(at: url, to: backup)
+    }
+
+    nonisolated private static func expand(_ path: String, home: URL) -> String {
+        if path == "~" { return home.path }
+        if path.hasPrefix("~/") { return home.path + "/" + path.dropFirst(2) }
+        return path
+    }
+}
+
 enum Machine {
-    nonisolated static func inspect(home: URL) async -> MachineReport {
+    nonisolated static func inspect(home: URL, workspaceRoots: [URL] = []) async -> MachineReport {
         let shell = HomeFiles.scan(home)
-        let settings = HomeFiles.peekSettings(home)
-        async let v4 = System.curlTrace(ipv6: false)
-        async let v6 = System.curlTrace(ipv6: true)
+        let configs = ConfigFiles.hits(home: home, roots: workspaceRoots)
+        let codex = ConfigFiles.codexKeys(home: home)
+        async let route4 = System.routeLookup(RouteQuery.ipv4Destination)
+        async let route6 = System.routeLookup(RouteQuery.ipv6Destination, inet6: true)
+        async let ports = System.run("/usr/sbin/networksetup", ["-listallhardwareports"])
+        async let proxy = System.run("/usr/sbin/scutil", ["--proxy"])
         async let dns = System.run("/usr/sbin/scutil", ["--dns"])
         async let vars = System.launchctlSet()
-        let v4r = await v4
-        let v6r = await v6
-        let dnsr = await dns
+        let route4r = await route4
+        let portsText = await ports
+        let hardware = RouteParse.hardwareDevices(in: portsText.stdout)
+        let iface = route4r.code == 0 ? RouteParse.interfaceName(in: route4r.stdout) : nil
+        let tunnel = iface.map(RouteParse.isTunnel) ?? false
+        let physical = iface.map { RouteParse.isPhysical($0, hardware: hardware) } ?? false
+        let route6r = await route6
+        let iface6 = route6r.code == 0 ? RouteParse.interfaceName(in: route6r.stdout) : nil
+
         var report = MachineReport()
         report.shell = shell
         report.launchctl = await vars
-        report.settingsMissing = settings.missing
-        report.settingsKeys = settings.keys
-        report.settingsError = settings.error
+        report.configHits = configs
+        report.codexMissing = codex.missing
+        report.codexKeys = codex.keys
+        report.codexError = codex.error
+        report.routeInterface = iface
+        report.routeIsTunnel = tunnel
+        report.routeIsPhysical = physical
+        if iface == nil {
+            let reason = route4r.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            report.routeError = reason.isEmpty ? "Could not read the IPv4 route." : reason
+        }
+        report.ipv6RouteInterface = iface6
+        report.ipv6RouteIsPhysical = iface6.map { RouteParse.isPhysical($0, hardware: hardware) } ?? false
+        report.proxyEnabled = ProxyParse.enabled(in: (await proxy).stdout)
+        report.socketLeaks = System.socketLeaks(for: System.protectedProcesses())
+        report.nameservers = DNSParse.nameservers(in: (await dns).stdout)
+        report.timeZone = TimeZone.current.identifier
+
+        guard tunnel else {
+            report.traceSkipped = true
+            report.ipv6Blocked = true
+            report.ipv6Skipped = report.ipv6RouteIsPhysical
+            return report
+        }
+
+        async let v4 = System.curlTrace(url: "https://claude.ai/cdn-cgi/trace", ipv6: false)
+        async let gpt = System.curlTrace(url: "https://chatgpt.com/cdn-cgi/trace", ipv6: false)
+        let v4r = await v4
+        let gptr = await gpt
         if v4r.code == 0 {
             report.ip = TraceParse.field("ip", in: v4r.stdout)
             report.loc = TraceParse.field("loc", in: v4r.stdout)
@@ -190,6 +390,21 @@ enum Machine {
             let reason = v4r.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             report.traceError = reason.isEmpty ? "Could not reach claude.ai." : reason
         }
+        if gptr.code == 0 {
+            report.chatgptIP = TraceParse.field("ip", in: gptr.stdout)
+            report.chatgptLoc = TraceParse.field("loc", in: gptr.stdout)
+            if report.chatgptIP == nil { report.chatgptError = "chatgpt.com answered without an IP." }
+        } else {
+            let reason = gptr.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            report.chatgptError = reason.isEmpty ? "Could not reach chatgpt.com." : reason
+        }
+
+        if report.ipv6RouteIsPhysical {
+            report.ipv6Blocked = true
+            report.ipv6Skipped = true
+            return report
+        }
+        let v6r = System.curlTrace(url: "https://claude.ai/cdn-cgi/trace", ipv6: true)
         if v6r.code == 0, let ip = TraceParse.field("ip", in: v6r.stdout) {
             report.ipv6Blocked = false
             report.ipv6IP = ip
@@ -197,8 +412,6 @@ enum Machine {
         } else {
             report.ipv6Blocked = true
         }
-        report.nameservers = DNSParse.nameservers(in: dnsr.stdout)
-        report.timeZone = TimeZone.current.identifier
         return report
     }
 }

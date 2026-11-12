@@ -25,6 +25,39 @@ public enum LeftoverName {
         "api.anthropic.com",
         "api.openai.com",
     ]
+
+    public static let baseURLKeys: Set<String> = [
+        "ANTHROPIC_BASE_URL",
+        "OPENAI_BASE_URL",
+        "OPENAI_API_BASE",
+    ]
+
+    public static let tokenKeys: Set<String> = [
+        "ANTHROPIC_AUTH_TOKEN",
+        "OPENAI_API_KEY",
+    ]
+
+    /// `NO_PROXY` is a bypass list, not a relay.
+    public static func isProxyKey(_ key: String) -> Bool {
+        let upper = key.uppercased()
+        if upper == "NO_PROXY" { return false }
+        return upper.hasSuffix("_PROXY")
+    }
+
+    /// Official API hosts, including OpenAI data-residency subdomains such as `us.api.openai.com`.
+    public static func isOfficialAPI(_ value: String) -> Bool {
+        var raw = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if raw.count >= 2, let first = raw.first, let last = raw.last, (first == "\"" && last == "\"") || (first == "'" && last == "'") {
+            raw = String(raw.dropFirst().dropLast())
+        }
+        if !raw.contains("://") { raw = "https://" + raw }
+        guard let host = URL(string: raw)?.host?.lowercased() else { return false }
+        if officialHosts.contains(host) { return true }
+        if host == "anthropic.com" || host.hasSuffix(".anthropic.com") { return true }
+        if host == "openai.com" || host.hasSuffix(".openai.com") { return true }
+        if host == "chatgpt.com" || host.hasSuffix(".chatgpt.com") { return true }
+        return false
+    }
 }
 
 public struct ShellHit: Equatable, Sendable {
@@ -122,18 +155,14 @@ public enum SettingsCleaner {
 
         var removed: [String] = []
         let relay = env.keys.contains { key in
-            guard key == "ANTHROPIC_BASE_URL" || key == "OPENAI_BASE_URL" || key == "OPENAI_API_BASE" else {
-                return false
-            }
-            guard let value = env[key] as? String else { return true }
-            return !isOfficial(value)
+            guard LeftoverName.baseURLKeys.contains(key) else { return false }
+            return relayHost(env[key])
         }
 
         for key in env.keys.sorted() {
-            let dropProxy = LeftoverName.proxyKeys.contains(key)
-            let dropRelayURL = (key == "ANTHROPIC_BASE_URL" || key == "OPENAI_BASE_URL" || key == "OPENAI_API_BASE")
-                && relayHost(env[key])
-            let dropToken = relay && (key == "ANTHROPIC_AUTH_TOKEN" || key == "OPENAI_API_KEY")
+            let dropProxy = LeftoverName.isProxyKey(key)
+            let dropRelayURL = LeftoverName.baseURLKeys.contains(key) && relayHost(env[key])
+            let dropToken = relay && LeftoverName.tokenKeys.contains(key)
             if dropProxy || dropRelayURL || dropToken {
                 env.removeValue(forKey: key)
                 removed.append(key)
@@ -159,8 +188,7 @@ public enum SettingsCleaner {
     }
 
     static func isOfficial(_ value: String) -> Bool {
-        guard let host = URL(string: value)?.host?.lowercased() else { return false }
-        return LeftoverName.officialHosts.contains(host)
+        LeftoverName.isOfficialAPI(value)
     }
 }
 

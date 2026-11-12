@@ -1,4 +1,5 @@
 import AppKit
+import CavokKit
 import SwiftUI
 
 struct MenuBarView: View {
@@ -37,6 +38,8 @@ struct MenuBarView: View {
             .frame(maxHeight: 560)
             Divider()
             VStack(alignment: .leading, spacing: Space.sm) {
+                Toggle("Guard", isOn: Binding(get: { store.guardOn }, set: { store.setGuard($0) }))
+                    .help("Quit Claude, ChatGPT, claude, and codex when the route leaves the tunnel, the exit is HK, CN, or MO, or the Mac sleeps.")
                 HStack(spacing: Space.sm) {
                     Button("Check Again") { store.inspect() }
                         .disabled(store.busy)
@@ -70,18 +73,39 @@ struct MenuBarView: View {
 }
 
 struct MenuBarSettings: View {
+    @Environment(FixStore.self) private var store
     @AppStorage("showMenuBar") private var showMenuBar = true
 
     var body: some View {
         Form {
             Section {
                 Toggle("Show Cavok in the menu bar", isOn: $showMenuBar)
-                    .controlSize(.mini)
+                Toggle("Guard", isOn: Binding(get: { store.guardOn }, set: { store.setGuard($0) }))
             } footer: {
-                Text("Closing the window leaves the menu bar icon in place.")
+                Text("Guard quits Claude, ChatGPT, claude, and codex when the route leaves the tunnel, the exit is HK, CN, or MO, or the Mac sleeps. A different Japan IP stays a warning.")
+            }
+            Section {
+                if store.workspacePaths.isEmpty {
+                    Text("No folders yet.")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(store.workspacePaths, id: \.self) { path in
+                    HStack {
+                        Text(PathDisplay.abbreviate(path))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: Space.sm)
+                        Button("Remove") { store.removeRoot(path) }
+                    }
+                }
+                Button("Add Folder…") { store.pickRoot() }
+            } header: {
+                Text("Project folders")
+            } footer: {
+                Text("Cavok looks a few levels down for .claude/settings.json and settings.local.json. Projects and Developer are added when those folders exist. Add Desktop yourself.")
             }
         }
         .formStyle(.grouped)
-        .frame(width: 360)
+        .frame(width: 460)
     }
 }

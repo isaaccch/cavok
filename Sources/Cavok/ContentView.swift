@@ -47,7 +47,7 @@ struct ContentView: View {
                 ToolbarItem {
                     Button("Open Claude") { store.perform(.openClaude) }
                         .disabled(!store.canOpenClaude || store.busy)
-                        .help(store.canOpenClaude ? "Open Claude while this exit is up." : "Available when the exit country is not HK, CN, or MO.")
+                        .help(store.canOpenClaude ? "Open Claude while this exit is up." : "Available when the route is a tunnel and the exit country is not HK, CN, or MO.")
                 }
                 ToolbarItem {
                     Button("Check Again") { store.inspect() }
@@ -85,6 +85,12 @@ struct FixConfirmations: ViewModifier {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("The clock becomes Asia/Tokyo and automatic time zone turns off. Cavok saves the current zone so you can put it back. macOS asks you to approve it.")
+            }
+            .alert("Turn off system proxies?", isPresented: presented(.proxy)) {
+                Button("Turn off") { store.perform(.disableProxy) }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("HTTP, HTTPS, SOCKS, and automatic proxy turn off on Wi-Fi and Ethernet. Surfshark is not changed. macOS asks you to approve it.")
             }
     }
 
