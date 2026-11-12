@@ -1,0 +1,68 @@
+import AppKit
+
+enum CheckDump {
+    static func runIfRequested() {
+        guard ProcessInfo.processInfo.environment["APP_CHECK"] == "1" else { return }
+        Task {
+            let report = await Machine.inspect(home: FileManager.default.homeDirectoryForCurrentUser)
+            print("CHECK ip=\(report.ip ?? "-") loc=\(report.loc ?? "-")")
+            print("CHECK shell=\(report.shell.map { "\($0.file):\($0.name)" }.joined(separator: ","))")
+            print("CHECK launchctl=\(report.launchctl.joined(separator: ","))")
+            print("CHECK settings=\(report.settingsKeys.joined(separator: ",")) missing=\(report.settingsMissing) error=\(report.settingsError ?? "-")")
+            print("CHECK ipv6Blocked=\(report.ipv6Blocked) ipv6=\(report.ipv6IP ?? "-") loc=\(report.ipv6Loc ?? "-")")
+            print("CHECK dns=\(report.nameservers.prefix(4).joined(separator: ","))")
+            print("CHECK zone=\(report.timeZone)")
+            print("CHECK traceError=\(report.traceError ?? "-")")
+            NSApp.terminate(nil)
+        }
+    }
+}
+
+enum Snapshot {
+    static func runIfRequested() {
+        guard let dir = ProcessInfo.processInfo.environment["APP_SNAPSHOT"], !dir.isEmpty else { return }
+        Task {
+            try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            try? await Task.sleep(for: .seconds(1))
+            let menu = ProcessInfo.processInfo.environment["APP_SNAPSHOT_MENU"] != nil
+            let name = menu ? "menubar" : "fixes"
+            for mode in ["light", "dark"] {
+                NSApp.appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)
+                try? await Task.sleep(for: .milliseconds(800))
+                capture(title: "Cavok", to: "\(dir)/\(name)-\(mode).png")
+            }
+            print("SNAPSHOT done \(dir)")
+            NSApp.terminate(nil)
+        }
+    }
+
+    private static func capture(title: String, to path: String) {
+        if NSApp.isHidden { NSApp.unhideWithoutActivation() }
+        guard let window = NSApp.windows.first(where: { $0.title == title && $0.canBecomeMain && !$0.isSheet }) else {
+            print("SNAPSHOT no window \(title)")
+            return
+        }
+        NSApp.activate()
+        window.makeKeyAndOrderFront(nil)
+        try? FileManager.default.removeItem(atPath: path)
+        for _ in 1...3 {
+            let shot = Process()
+            shot.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+            shot.arguments = ["-x", "-o", "-l", String(window.windowNumber), path]
+            try? shot.run()
+            shot.waitUntilExit()
+            if FileManager.default.fileExists(atPath: path) {
+                print("SNAPSHOT \(path)")
+                return
+            }
+            Thread.sleep(forTimeInterval: 0.4)
+        }
+        guard let view = window.contentView,
+              let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        if let data = rep.representation(using: .png, properties: [:]) {
+            try? data.write(to: URL(fileURLWithPath: path))
+            print("SNAPSHOT \(path) (fallback)")
+        }
+    }
+}
