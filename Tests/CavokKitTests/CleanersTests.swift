@@ -72,7 +72,7 @@ import Testing
     nameserver[0] : 192.168.124.1
     """
     #expect(DNSParse.nameservers(in: dns) == ["162.252.172.57"])
-    #expect(RegionGate.allowsClaude("JP"))
-    #expect(!RegionGate.allowsClaude("HK"))
-    #expect(!RegionGate.allowsClaude(nil))
+    #expect(RegionGate.allows("JP"))
+    #expect(!RegionGate.allows("HK"))
+    #expect(!RegionGate.allows(nil))
 }

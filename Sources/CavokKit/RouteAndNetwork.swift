@@ -151,7 +151,7 @@ public struct ProtectedProcess: Equatable, Sendable {
 }
 
 public enum ProcessMatch {
-    /// `ps -axo pid=,comm=,args=`. `comm` is 16 bytes, so npm `claude` shows up as `node` and the Codex binary as a truncated `codex-aarch64-ap`. The command line is the match.
+    /// `ps -axww -o pid=,args=`. Match argv0, or the script when argv0 is `node`. Argument text on vim, grep, man, or git does not match.
     public static func protected(in text: String) -> [ProtectedProcess] {
         var found: [ProtectedProcess] = []
         var seen: Set<Int32> = []
@@ -160,7 +160,7 @@ public enum ProcessMatch {
             guard let gap = line.firstIndex(where: { $0.isWhitespace }) else { continue }
             guard let pid = Int32(line[..<gap]) else { continue }
             guard seen.insert(pid).inserted else { continue }
-            let command = String(line[gap...])
+            let command = String(line[gap...]).trimmingCharacters(in: .whitespaces)
             guard let label = label(for: command) else { continue }
             found.append(ProtectedProcess(pid: pid, label: label))
         }
@@ -168,16 +168,28 @@ public enum ProcessMatch {
     }
 
     static func label(for command: String) -> String? {
-        if command.contains("Claude.app") { return "Claude" }
-        if command.contains("ChatGPT.app") { return "ChatGPT" }
-        if matches(command, #"codex(-aarch64[A-Za-z0-9-]*)?"#) { return "codex" }
-        if matches(command, #"claude(-code)?"#) { return "claude" }
+        let tokens = command.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard let argv0 = tokens.first else { return nil }
+        if let label = program(argv0) { return label }
+        guard baseName(argv0) == "node" else { return nil }
+        guard let script = tokens.dropFirst().first(where: { !$0.hasPrefix("-") }) else { return nil }
+        return program(script)
+    }
+
+    private static func program(_ path: String) -> String? {
+        if path.contains("Claude.app") { return "Claude" }
+        if path.contains("ChatGPT.app") { return "ChatGPT" }
+        let base = baseName(path)
+        if base == "claude" || base == "claude-code" { return "claude" }
+        if base == "codex" || base.hasPrefix("codex-aarch64") { return "codex" }
+        if path.contains("@anthropic-ai/claude-code/") && path.contains("cli.js") { return "claude" }
+        if path.hasSuffix("/claude/cli.js") { return "claude" }
         return nil
     }
 
-    private static func matches(_ command: String, _ body: String) -> Bool {
-        guard let regex = try? NSRegularExpression(pattern: "(^|[/\\s\"])\(body)(\\s|$|\")") else { return false }
-        let range = NSRange(command.startIndex..., in: command)
-        return regex.firstMatch(in: command, range: range) != nil
+    private static func baseName(_ path: String) -> String {
+        let trimmed = path.hasSuffix("/") ? String(path.dropLast()) : path
+        guard let slash = trimmed.lastIndex(of: "/") else { return trimmed }
+        return String(trimmed[trimmed.index(after: slash)...])
     }
 }

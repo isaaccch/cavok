@@ -21,6 +21,7 @@ enum FixAction: Equatable {
     case setTokyo
     case restoreZone
     case openClaude
+    case openChatGPT
 }
 
 enum Confirm: Equatable {
@@ -29,7 +30,7 @@ enum Confirm: Equatable {
 
 struct FixRow: Identifiable, Equatable {
     enum ID: String, CaseIterable {
-        case route, exit, chatgpt, shell, launchctl, settings, codex, proxy, sockets, ipv6, dns, zone
+        case route, exit, chatgpt, reach, shell, launchctl, settings, codex, proxy, sockets, ipv6, dns, zone
     }
 
     var id: ID
@@ -50,10 +51,10 @@ struct FixSection: Identifiable {
 @Observable
 final class FixStore {
     static let sections = [
-        FixSection(title: "Exit", ids: [.route, .exit, .chatgpt]),
+        FixSection(title: "Exit", ids: [.route, .exit, .chatgpt, .reach]),
         FixSection(title: "Files and environment", ids: [.shell, .launchctl, .settings, .codex]),
         FixSection(title: "Network", ids: [.proxy, .sockets, .ipv6, .dns]),
-        FixSection(title: "Time zone", ids: [.zone]),
+        FixSection(title: "Time zone and locale", ids: [.zone]),
     ]
 
     private static let pinIPKey = "cavok.pinnedIP"
@@ -72,19 +73,10 @@ final class FixStore {
     private var didStart = false
     private var report = MachineReport()
     private var watchdog: Watchdog?
+    @ObservationIgnored private var inspectGeneration = 0
 
     var blockingReason: String? {
-        if report.routeIsPhysical {
-            let name = report.routeInterface ?? "Wi-Fi"
-            return "The IPv4 route is \(name), not the tunnel."
-        }
-        if let loc = report.loc, report.ip != nil, !RegionGate.allowsClaude(loc) {
-            return "Claude's exit is \(loc)."
-        }
-        if let loc = report.chatgptLoc, report.chatgptIP != nil, !RegionGate.allowsClaude(loc) {
-            return "ChatGPT's exit is \(loc)."
-        }
-        return nil
+        SessionGate.blockingReason(facts())
     }
 
     var menuSymbol: String {
@@ -105,12 +97,15 @@ final class FixStore {
         rows[.shell]?.action != nil || rows[.launchctl]?.action != nil || rows[.settings]?.action != nil || rows[.codex]?.action != nil
     }
 
-    var canOpenClaude: Bool {
+    var canOpen: Bool {
         if preview { return true }
-        guard report.routeIsTunnel, report.ip != nil, RegionGate.allowsClaude(report.loc) else { return false }
-        if !report.socketLeaks.isEmpty { return false }
-        if let loc = report.chatgptLoc, !RegionGate.allowsClaude(loc) { return false }
-        return true
+        return SessionGate.canOpen(facts())
+    }
+
+    var openHelp: String {
+        canOpen
+            ? "Open while Claude and ChatGPT share this exit."
+            : "Stays off until both exits match an allowed country on the tunnel, with no leak, leftover, or socket on Wi-Fi or Ethernet."
     }
 
     init(preview: Bool = ProcessInfo.processInfo.environment["APP_SNAPSHOT"] != nil) {
@@ -167,14 +162,18 @@ final class FixStore {
         guard !preview else { return }
         busy = true
         if !keepNote { note = "Checking…" }
+        inspectGeneration += 1
+        let generation = inspectGeneration
         let home = FileManager.default.homeDirectoryForCurrentUser
         let roots = Self.workspaceRoots()
         Task {
             let report = await Machine.inspect(home: home, workspaceRoots: roots)
+            guard generation == self.inspectGeneration else { return }
             self.report = report
             self.rows = Self.makeRows(
                 report,
                 pinned: UserDefaults.standard.string(forKey: Self.pinIPKey),
+                pinnedLoc: UserDefaults.standard.string(forKey: Self.pinLocKey),
                 ipv6Changed: UserDefaults.standard.bool(forKey: Self.ipv6Key),
                 previousZone: UserDefaults.standard.string(forKey: Self.zoneKey)
             )
@@ -200,6 +199,8 @@ final class FixStore {
         switch action {
         case .openClaude:
             openClaude()
+        case .openChatGPT:
+            openChatGPT()
         case .pin:
             pin()
         case .quitApps:
@@ -207,6 +208,35 @@ final class FixStore {
         default:
             apply(action)
         }
+    }
+
+    private func facts() -> SessionFacts {
+        var hosts: [SessionFacts.IPv6Sighting] = []
+        if report.ipv6Claude.ip != nil {
+            hosts.append(SessionFacts.IPv6Sighting(host: report.ipv6Claude.host, loc: report.ipv6Claude.loc, ipv4Loc: report.loc))
+        }
+        if report.ipv6ChatGPT.ip != nil {
+            hosts.append(SessionFacts.IPv6Sighting(host: report.ipv6ChatGPT.host, loc: report.ipv6ChatGPT.loc, ipv4Loc: report.chatgptLoc))
+        }
+        return SessionFacts(
+            routeIsPhysical: report.routeIsPhysical,
+            routeIsTunnel: report.routeIsTunnel,
+            routeInterface: report.routeInterface,
+            claudeIP: report.ip,
+            claudeLoc: report.loc,
+            chatgptIP: report.chatgptIP,
+            chatgptLoc: report.chatgptLoc,
+            pinnedIP: UserDefaults.standard.string(forKey: Self.pinIPKey),
+            socketLeak: !report.socketLeaks.isEmpty,
+            shellLeftover: !report.shell.isEmpty,
+            launchctlLeftover: !report.launchctl.isEmpty,
+            claudeConfigLeftover: report.configHits.contains { !$0.keys.isEmpty },
+            codexLeftover: !report.codexKeys.isEmpty,
+            proxyLeftover: !report.proxyEnabled.isEmpty,
+            ipv6RouteIsPhysical: report.ipv6RouteIsPhysical,
+            ipv6RouteInterface: report.ipv6RouteInterface,
+            ipv6Hosts: hosts
+        )
     }
 
     private func enforceGuard() {
@@ -217,15 +247,26 @@ final class FixStore {
     }
 
     private func pin() {
-        guard let ip = report.ip else { return }
+        guard let ip = report.ip, let other = report.chatgptIP, ip == other,
+              let loc = report.loc, let otherLoc = report.chatgptLoc else {
+            note = "Pin needs the same address from Claude and ChatGPT."
+            return
+        }
+        guard loc.uppercased() == otherLoc.uppercased(), RegionGate.allows(loc), RegionGate.allows(otherLoc) else {
+            let blocked = !RegionGate.allows(loc) || !RegionGate.allows(otherLoc)
+            note = blocked
+                ? "That exit is HK, CN, or MO. Cavok will not pin it."
+                : "Pin needs the same country from Claude and ChatGPT."
+            return
+        }
         UserDefaults.standard.set(ip, forKey: Self.pinIPKey)
-        UserDefaults.standard.set(report.loc, forKey: Self.pinLocKey)
+        UserDefaults.standard.set(loc, forKey: Self.pinLocKey)
         note = "Pinned \(ip)."
         inspect(keepNote: true)
     }
 
     private func openClaude() {
-        guard canOpenClaude else { return }
+        guard canOpen else { return }
         let app = URL(fileURLWithPath: "/Applications/Claude.app")
         if FileManager.default.fileExists(atPath: app.path) {
             NSWorkspace.shared.open(app)
@@ -236,9 +277,21 @@ final class FixStore {
         }
     }
 
+    private func openChatGPT() {
+        guard canOpen else { return }
+        let app = URL(fileURLWithPath: "/Applications/ChatGPT.app")
+        if FileManager.default.fileExists(atPath: app.path) {
+            NSWorkspace.shared.open(app)
+            note = "Opened ChatGPT."
+        } else if let url = URL(string: "https://chatgpt.com") {
+            NSWorkspace.shared.open(url)
+            note = "ChatGPT.app is not installed. Opened chatgpt.com."
+        }
+    }
+
     private func quitApps() {
         let labels = System.terminateProtected(force: true)
-        note = labels.isEmpty ? "Claude and Codex were not running." : "Quit \(labels.sorted().joined(separator: ", "))."
+        note = labels.isEmpty ? "Claude, ChatGPT, claude, and codex were not running." : "Quit \(labels.sorted().joined(separator: ", "))."
         inspect(keepNote: true)
     }
 
@@ -277,7 +330,7 @@ final class FixStore {
                 case .restoreZone:
                     guard let savedZone else { return Exec(stderr: "No saved time zone.", code: 1) }
                     return System.setTimeZone(savedZone, automatic: true)
-                case .pin, .openClaude, .quitApps:
+                case .pin, .openClaude, .openChatGPT, .quitApps:
                     return Exec(code: 0)
                 }
             }.value
@@ -361,7 +414,7 @@ final class FixStore {
         switch action {
         case .cleanShell, .cleanSettings, .cleanCodex, .cleanAll, .cleanLaunchctl:
             let body = detail.isEmpty ? "Nothing needed a change." : "Cleaned \(detail)."
-            return body + " A copy of any file that changed is saved next to it as .cavok-bak. Open a new terminal before using claude."
+            return body + " The first copy is kept as .cavok-bak. Open a new terminal before using claude or ChatGPT."
         case .disableProxy:
             return "System proxies are off on Wi-Fi and Ethernet. Surfshark was left alone."
         case .quitApps:
@@ -376,7 +429,7 @@ final class FixStore {
             return "Time zone is Asia/Tokyo. Automatic time zone is off."
         case .restoreZone:
             return "The previous time zone is restored. Automatic time zone is on again."
-        case .pin, .openClaude:
+        case .pin, .openClaude, .openChatGPT:
             return ""
         }
     }
@@ -384,13 +437,15 @@ final class FixStore {
     private static func makeRows(
         _ report: MachineReport,
         pinned: String?,
+        pinnedLoc: String?,
         ipv6Changed: Bool,
         previousZone: String?
     ) -> [FixRow.ID: FixRow] {
         Dictionary(uniqueKeysWithValues: [
             route(report),
-            exit(report, pinned: pinned),
-            chatgpt(report, pinned: pinned),
+            exit(report, pinned: pinned, pinnedLoc: pinnedLoc),
+            chatgpt(report, pinned: pinned, pinnedLoc: pinnedLoc),
+            reach(report),
             shell(report),
             launchctl(report),
             settings(report),
@@ -415,46 +470,136 @@ final class FixStore {
         return FixRow(id: .route, title: "Tunnel route", detail: report.routeError ?? "Could not read the IPv4 route.", tone: .idle, button: nil, action: nil)
     }
 
-    private static func exit(_ report: MachineReport, pinned: String?) -> FixRow {
+    private static func exit(_ report: MachineReport, pinned: String?, pinnedLoc: String?) -> FixRow {
         if report.traceSkipped {
             return FixRow(id: .exit, title: "Exit IP", detail: "No probe. The route is not on a tunnel.", tone: .warn, button: nil, action: nil)
         }
         guard let ip = report.ip, let loc = report.loc else {
             return FixRow(id: .exit, title: "Exit IP", detail: report.traceError ?? "Could not read the exit IP.", tone: .idle, button: nil, action: nil)
         }
-        let place = "\(ip) · \(loc)"
+        var parts = ["\(ip) · \(loc)."]
+        if !RegionGate.allows(loc) { parts.append("This exit is HK, CN, or MO.") }
+        if let other = report.chatgptIP, other != ip { parts.append("ChatGPT's address is \(other).") }
+        if let otherLoc = report.chatgptLoc, report.chatgptIP != nil, otherLoc.uppercased() != loc.uppercased() {
+            parts.append("ChatGPT's country is \(otherLoc).")
+        }
         if let pinned, pinned != ip {
-            return FixRow(id: .exit, title: "Exit IP", detail: "\(place). The pinned IP is \(pinned). Cavok cannot switch Surfshark. Reconnect that server, or pin this one.", tone: .warn, button: "Pin this IP", action: .pin)
+            parts.append("The pinned IP is \(pinned). Cavok cannot switch Surfshark.")
+        } else if pinned == ip {
+            parts.append("This is the IP you pinned.")
+        } else if canOfferPin(report) {
+            parts.append("Not pinned yet. Pin it while the Japan static server is connected.")
         }
-        if pinned == ip {
-            return FixRow(id: .exit, title: "Exit IP", detail: "\(place). This is the IP you pinned.", tone: RegionGate.allowsClaude(loc) ? .ok : .warn, button: nil, action: nil)
-        }
-        let allowed = RegionGate.allowsClaude(loc)
-        let extra = allowed
-            ? "Not pinned yet. Pin it while the Japan static server is connected."
-            : "This exit is HK, CN, or MO."
-        return FixRow(id: .exit, title: "Exit IP", detail: "\(place). \(extra)", tone: allowed ? .idle : .warn, button: "Pin this IP", action: .pin)
+        if let changed = countryChanged(loc, pinnedLoc: pinnedLoc) { parts.append(changed) }
+        let offer = canOfferPin(report) && pinned != ip
+        return FixRow(
+            id: .exit,
+            title: "Exit IP",
+            detail: parts.joined(separator: " "),
+            tone: exitTone(ip: ip, loc: loc, otherIP: report.chatgptIP, otherLoc: report.chatgptLoc, pinned: pinned),
+            button: offer ? "Pin this IP" : nil,
+            action: offer ? .pin : nil
+        )
     }
 
-    private static func chatgpt(_ report: MachineReport, pinned: String?) -> FixRow {
+    private static func chatgpt(_ report: MachineReport, pinned: String?, pinnedLoc: String?) -> FixRow {
         if report.traceSkipped {
             return FixRow(id: .chatgpt, title: "ChatGPT exit", detail: "No probe. The route is not on a tunnel.", tone: .warn, button: nil, action: nil)
         }
         guard let ip = report.chatgptIP, let loc = report.chatgptLoc else {
             return FixRow(id: .chatgpt, title: "ChatGPT exit", detail: report.chatgptError ?? "Could not read the ChatGPT exit.", tone: .idle, button: nil, action: nil)
         }
-        let place = "\(ip) · \(loc)"
-        if !RegionGate.allowsClaude(loc) {
-            return FixRow(id: .chatgpt, title: "ChatGPT exit", detail: "\(place). This exit is HK, CN, or MO.", tone: .warn, button: nil, action: nil)
+        var parts = ["\(ip) · \(loc)."]
+        if !RegionGate.allows(loc) { parts.append("This exit is HK, CN, or MO.") }
+        if let claudeIP = report.ip, claudeIP != ip { parts.append("Claude's address is \(claudeIP).") }
+        if let claudeLoc = report.loc, report.ip != nil, claudeLoc.uppercased() != loc.uppercased() {
+            parts.append("Claude's country is \(claudeLoc).")
         }
         if let pinned, pinned != ip {
-            return FixRow(id: .chatgpt, title: "ChatGPT exit", detail: "\(place). The pinned IP is \(pinned).", tone: .warn, button: nil, action: nil)
+            parts.append("The pinned IP is \(pinned).")
+        } else if pinned == ip {
+            parts.append("This is the IP you pinned.")
+        } else if canOfferPin(report) {
+            parts.append("Not pinned yet.")
         }
-        if let claudeIP = report.ip, claudeIP != ip {
-            return FixRow(id: .chatgpt, title: "ChatGPT exit", detail: "\(place). Claude's address is \(claudeIP).", tone: .warn, button: nil, action: nil)
+        if let changed = countryChanged(loc, pinnedLoc: pinnedLoc) { parts.append(changed) }
+        return FixRow(
+            id: .chatgpt,
+            title: "ChatGPT exit",
+            detail: parts.joined(separator: " "),
+            tone: exitTone(ip: ip, loc: loc, otherIP: report.ip, otherLoc: report.loc, pinned: pinned),
+            button: nil,
+            action: nil
+        )
+    }
+
+    private static func reach(_ report: MachineReport) -> FixRow {
+        let title = "Service reachability"
+        if report.traceSkipped {
+            return FixRow(id: .reach, title: title, detail: "No probe. The route is not on a tunnel.", tone: .warn, button: nil, action: nil)
         }
-        let extra = pinned == ip ? "This is the IP you pinned." : "Not pinned yet."
-        return FixRow(id: .chatgpt, title: "ChatGPT exit", detail: "\(place). \(extra)", tone: pinned == ip ? .ok : .idle, button: nil, action: nil)
+        let claudeChallenged = report.claudePage.challenged
+        let gptChallenged = report.chatgptPage.challenged
+        let claudeOK = Self.reached(report.claudePage)
+        let gptOK = Self.reached(report.chatgptPage)
+        let detail: String
+        if claudeOK, gptOK {
+            detail = "curl reached claude.ai and chatgpt.com. This is curl's result and does not mean either app or a browser is blocked."
+        } else {
+            detail = reachPiece("claude.ai", report.claudePage)
+                + " " + reachPiece("chatgpt.com", report.chatgptPage)
+                + " This is curl's result and does not mean either app or a browser is blocked."
+        }
+        let tone: Tone
+        if claudeChallenged || gptChallenged {
+            tone = .warn
+        } else if claudeOK, gptOK {
+            tone = .ok
+        } else {
+            tone = .idle
+        }
+        return FixRow(id: .reach, title: title, detail: detail, tone: tone, button: nil, action: nil)
+    }
+
+    private static func reached(_ page: PageHeaders) -> Bool {
+        guard let status = page.status, (200..<300).contains(status), !page.challenged else { return false }
+        return true
+    }
+
+    private static func reachPiece(_ host: String, _ page: PageHeaders) -> String {
+        if page.challenged {
+            var bits: [String] = []
+            if let status = page.status, status == 403 || status == 421 { bits.append("returned \(status)") }
+            if page.mitigated { bits.append("sent cf-mitigated") }
+            if bits.isEmpty { bits.append("was challenged") }
+            return "\(host) \(bits.joined(separator: " and "))."
+        }
+        if let status = page.status {
+            return "\(host) returned \(status)."
+        }
+        return "\(host) did not answer."
+    }
+
+    private static func canOfferPin(_ report: MachineReport) -> Bool {
+        guard let ip = report.ip, let loc = report.loc else { return false }
+        guard report.chatgptIP == ip, let other = report.chatgptLoc else { return false }
+        guard loc.uppercased() == other.uppercased() else { return false }
+        return RegionGate.allows(loc)
+    }
+
+    private static func exitTone(ip: String, loc: String, otherIP: String?, otherLoc: String?, pinned: String?) -> Tone {
+        if !RegionGate.allows(loc) { return .warn }
+        if let pinned, pinned != ip { return .warn }
+        if let otherIP, otherIP != ip { return .warn }
+        if let otherLoc, otherLoc.uppercased() != loc.uppercased() { return .warn }
+        if pinned == ip { return .ok }
+        if pinned == nil, otherIP == ip, otherLoc?.uppercased() == loc.uppercased() { return .warn }
+        return .idle
+    }
+
+    private static func countryChanged(_ current: String, pinnedLoc: String?) -> String? {
+        guard let pinnedLoc, !pinnedLoc.isEmpty, pinnedLoc.uppercased() != current.uppercased() else { return nil }
+        return "Pinned country was \(pinnedLoc)."
     }
 
     private static func shell(_ report: MachineReport) -> FixRow {
@@ -506,12 +651,12 @@ final class FixStore {
         if report.proxyEnabled.isEmpty {
             return FixRow(id: .proxy, title: "System proxy", detail: "HTTP, HTTPS, SOCKS, and automatic proxy are off.", tone: .ok, button: nil, action: nil)
         }
-        return FixRow(id: .proxy, title: "System proxy", detail: "\(report.proxyEnabled.joined(separator: ", ")) is on. Claude.app follows the macOS proxy.", tone: .warn, button: "Turn off", action: .disableProxy)
+        return FixRow(id: .proxy, title: "System proxy", detail: "\(report.proxyEnabled.joined(separator: ", ")) is on. Claude and ChatGPT follow the macOS proxy.", tone: .warn, button: "Turn off", action: .disableProxy)
     }
 
     private static func sockets(_ report: MachineReport) -> FixRow {
         if report.socketLeaks.isEmpty {
-            return FixRow(id: .sockets, title: "Open app sockets", detail: "No Claude or Codex connection is using a Wi-Fi or Ethernet address.", tone: .ok, button: nil, action: nil)
+            return FixRow(id: .sockets, title: "Open app sockets", detail: "No Claude, ChatGPT, or Codex connection is using a Wi-Fi or Ethernet address.", tone: .ok, button: nil, action: nil)
         }
         let parts = report.socketLeaks.map { "\($0.command) \($0.localAddress)" }
         return FixRow(id: .sockets, title: "Open app sockets", detail: parts.joined(separator: ", ") + ".", tone: .warn, button: "Quit apps", action: .quitApps)
@@ -519,6 +664,9 @@ final class FixStore {
 
     private static func ipv6(_ report: MachineReport, changed: Bool) -> FixRow {
         let restore = changed ? "Restore automatic" : nil
+        if report.ipv6Missing {
+            return FixRow(id: .ipv6, title: "IPv6", detail: "IPv6 not present", tone: .idle, button: restore, action: changed ? .ipv6Automatic : nil)
+        }
         if report.ipv6Skipped {
             return FixRow(
                 id: .ipv6,
@@ -529,42 +677,80 @@ final class FixStore {
                 action: .ipv6LinkLocal
             )
         }
-        if report.ipv6Blocked {
-            return FixRow(
-                id: .ipv6,
-                title: "IPv6",
-                detail: "claude.ai did not answer on IPv6.",
-                tone: .ok,
-                button: restore,
-                action: changed ? .ipv6Automatic : nil
-            )
-        }
-        let loc = report.ipv6Loc ?? "an unknown country"
-        let leaked = RegionGate.blocked.contains((report.ipv6Loc ?? "").uppercased()) || (report.loc != nil && report.ipv6Loc != report.loc)
+        let leaked = ipv6Leaked(report)
+        let bothAnswered = report.ipv6Claude.ip != nil && report.ipv6ChatGPT.ip != nil
+        let detail = report.ipv6Claude.ip == nil && report.ipv6ChatGPT.ip == nil
+            ? "claude.ai and chatgpt.com did not answer on IPv6."
+            : "\(ipv6Piece(report.ipv6Claude, fallback: "claude.ai")) \(ipv6Piece(report.ipv6ChatGPT, fallback: "chatgpt.com"))"
+        let tone: Tone = leaked ? .warn : (bothAnswered ? .ok : .idle)
         return FixRow(
             id: .ipv6,
             title: "IPv6",
-            detail: "claude.ai sees IPv6 \(report.ipv6IP ?? "") in \(loc).",
-            tone: leaked ? .warn : .ok,
+            detail: detail,
+            tone: tone,
             button: leaked ? "Set link-local" : restore,
             action: leaked ? .ipv6LinkLocal : (changed ? .ipv6Automatic : nil)
         )
     }
 
+    private static func ipv6Piece(_ result: IPv6HostResult, fallback: String) -> String {
+        let host = result.host.isEmpty ? fallback : result.host
+        guard let ip = result.ip else { return "\(host) did not answer on IPv6." }
+        let loc = result.loc ?? "an unknown country"
+        return "\(host) sees IPv6 \(ip) in \(loc)."
+    }
+
+    private static func ipv6Leaked(_ report: MachineReport) -> Bool {
+        func bad(_ result: IPv6HostResult, v4: String?) -> Bool {
+            guard result.ip != nil else { return false }
+            if let loc = result.loc, RegionGate.blocked.contains(loc.uppercased()) { return true }
+            if let v4, !v4.isEmpty, result.loc?.uppercased() != v4.uppercased() { return true }
+            return false
+        }
+        if bad(report.ipv6Claude, v4: report.loc) || bad(report.ipv6ChatGPT, v4: report.chatgptLoc) { return true }
+        if let left = report.ipv6Claude.loc, let right = report.ipv6ChatGPT.loc,
+           report.ipv6Claude.ip != nil, report.ipv6ChatGPT.ip != nil,
+           left.uppercased() != right.uppercased() {
+            return true
+        }
+        return false
+    }
+
     private static func dns(_ report: MachineReport) -> FixRow {
         let shown = report.nameservers.prefix(4).joined(separator: ", ")
-        let detail = shown.isEmpty
-            ? "No resolver addresses were read. Flush only clears the cache."
-            : "Resolvers in use: \(shown). Flush only clears the cache."
-        return FixRow(id: .dns, title: "DNS cache", detail: detail, tone: shown.isEmpty ? .idle : .ok, button: "Flush", action: .flushDNS)
+        let listed = shown.isEmpty ? "No resolver addresses were read." : "Resolvers in use: \(shown)."
+        if report.routeIsTunnel, !report.dnsPhysicalInterfaces.isEmpty {
+            let names = report.dnsPhysicalInterfaces.joined(separator: ", ")
+            return FixRow(
+                id: .dns,
+                title: "DNS",
+                detail: "\(listed) A resolver is on \(names) while the IPv4 route is a tunnel. Flush only clears the cache.",
+                tone: .warn,
+                button: "Flush",
+                action: .flushDNS
+            )
+        }
+        return FixRow(id: .dns, title: "DNS", detail: "\(listed) Flush only clears the cache.", tone: .idle, button: "Flush", action: .flushDNS)
     }
 
     private static func zone(_ report: MachineReport, previous: String?) -> FixRow {
-        if report.timeZone == "Asia/Tokyo" {
-            let button = previous == nil ? nil : "Restore \(previous ?? "")"
-            return FixRow(id: .zone, title: "Time zone", detail: "This Mac is on Asia/Tokyo.", tone: .ok, button: button, action: previous == nil ? nil : .restoreZone)
+        let zone = report.timeZone
+        let exits = [report.loc, report.chatgptLoc].compactMap { $0 }.filter { !$0.isEmpty }
+        let japan = exits.contains { $0.uppercased() == "JP" }
+        let tags = LocaleTags.find(locale: report.appleLocale, languages: report.appleLanguages, inputSources: report.inputSources)
+        let mismatched = LocaleTags.regionsThatDiffer(tags, from: exits)
+        var sentences = ["This Mac is on \(zone)."]
+        if japan, zone != "Asia/Tokyo" { sentences.append("An exit is JP.") }
+        if !mismatched.isEmpty {
+            sentences.append("Locale or input source includes \(mismatched.joined(separator: ", ")) while an exit country is not that country.")
         }
-        return FixRow(id: .zone, title: "Time zone", detail: "This Mac is on \(report.timeZone).", tone: .idle, button: "Set to Tokyo", action: .setTokyo)
+        let warn = (japan && zone != "Asia/Tokyo") || !mismatched.isEmpty
+        let tone: Tone = warn ? .warn : (zone == "Asia/Tokyo" ? .ok : .idle)
+        if zone == "Asia/Tokyo" {
+            let button = previous == nil ? nil : "Restore \(previous ?? "")"
+            return FixRow(id: .zone, title: "Time zone and locale", detail: sentences.joined(separator: " "), tone: tone, button: button, action: previous == nil ? nil : .restoreZone)
+        }
+        return FixRow(id: .zone, title: "Time zone and locale", detail: sentences.joined(separator: " "), tone: tone, button: "Set to Tokyo", action: .setTokyo)
     }
 
     private static let waiting: [FixRow.ID: FixRow] = Dictionary(uniqueKeysWithValues: FixRow.ID.allCases.map { id in
@@ -576,6 +762,7 @@ final class FixStore {
         case .route: "Tunnel route"
         case .exit: "Exit IP"
         case .chatgpt: "ChatGPT exit"
+        case .reach: "Service reachability"
         case .shell: "Shell startup files"
         case .launchctl: "Login environment"
         case .settings: "Claude configs"
@@ -583,8 +770,8 @@ final class FixStore {
         case .proxy: "System proxy"
         case .sockets: "Open app sockets"
         case .ipv6: "IPv6"
-        case .dns: "DNS cache"
-        case .zone: "Time zone"
+        case .dns: "DNS"
+        case .zone: "Time zone and locale"
         }
     }
 
@@ -592,14 +779,15 @@ final class FixStore {
         .route: FixRow(id: .route, title: "Tunnel route", detail: "IPv4 route is utun4.", tone: .ok, button: nil, action: nil),
         .exit: FixRow(id: .exit, title: "Exit IP", detail: "93.118.41.99 · JP. This is the IP you pinned.", tone: .ok, button: nil, action: nil),
         .chatgpt: FixRow(id: .chatgpt, title: "ChatGPT exit", detail: "93.118.41.99 · JP. This is the IP you pinned.", tone: .ok, button: nil, action: nil),
+        .reach: FixRow(id: .reach, title: "Service reachability", detail: "curl reached claude.ai and chatgpt.com. This is curl's result and does not mean either app or a browser is blocked.", tone: .ok, button: nil, action: nil),
         .shell: FixRow(id: .shell, title: "Shell startup files", detail: ".zshrc sets HTTPS_PROXY.", tone: .warn, button: "Comment out", action: .cleanShell),
         .launchctl: FixRow(id: .launchctl, title: "Login environment", detail: "No proxy or custom API address is set for apps launched from this login.", tone: .ok, button: nil, action: nil),
         .settings: FixRow(id: .settings, title: "Claude configs", detail: "~/.claude/settings.json has ANTHROPIC_BASE_URL.", tone: .warn, button: "Remove", action: .cleanSettings),
         .codex: FixRow(id: .codex, title: "Codex config", detail: "No custom base URL in ~/.codex/config.toml.", tone: .ok, button: nil, action: nil),
-        .proxy: FixRow(id: .proxy, title: "System proxy", detail: "HTTPEnable is on. Claude.app follows the macOS proxy.", tone: .warn, button: "Turn off", action: .disableProxy),
-        .sockets: FixRow(id: .sockets, title: "Open app sockets", detail: "No Claude or Codex connection is using a Wi-Fi or Ethernet address.", tone: .ok, button: nil, action: nil),
-        .ipv6: FixRow(id: .ipv6, title: "IPv6", detail: "claude.ai did not answer on IPv6.", tone: .ok, button: nil, action: nil),
-        .dns: FixRow(id: .dns, title: "DNS cache", detail: "Resolvers in use: 162.252.172.57, 149.154.159.92. Flush only clears the cache.", tone: .ok, button: "Flush", action: .flushDNS),
-        .zone: FixRow(id: .zone, title: "Time zone", detail: "This Mac is on Asia/Hong_Kong.", tone: .idle, button: "Set to Tokyo", action: .setTokyo),
+        .proxy: FixRow(id: .proxy, title: "System proxy", detail: "HTTPEnable is on. Claude and ChatGPT follow the macOS proxy.", tone: .warn, button: "Turn off", action: .disableProxy),
+        .sockets: FixRow(id: .sockets, title: "Open app sockets", detail: "No Claude, ChatGPT, or Codex connection is using a Wi-Fi or Ethernet address.", tone: .ok, button: nil, action: nil),
+        .ipv6: FixRow(id: .ipv6, title: "IPv6", detail: "claude.ai and chatgpt.com did not answer on IPv6.", tone: .idle, button: nil, action: nil),
+        .dns: FixRow(id: .dns, title: "DNS", detail: "Resolvers in use: 162.252.172.57, 149.154.159.92. A resolver is on en0 while the IPv4 route is a tunnel. Flush only clears the cache.", tone: .warn, button: "Flush", action: .flushDNS),
+        .zone: FixRow(id: .zone, title: "Time zone and locale", detail: "This Mac is on Asia/Hong_Kong. An exit is JP.", tone: .warn, button: "Set to Tokyo", action: .setTokyo),
     ]
 }

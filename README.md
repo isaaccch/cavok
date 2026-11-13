@@ -21,9 +21,9 @@ The icon shows the exit country, such as `JP`. It shows `LAN` when traffic would
 1. Connect the Surfshark Japan static server.
 2. Open Cavok. Wait until the rows finish.
 3. **Tunnel route** should be green. If it is orange, you are not on the VPN. Cavok will not contact Claude or ChatGPT until you are.
-4. On **Exit IP**, click **Pin this IP** while that Japan server is connected. Leave that server selected.
+4. On **Exit IP**, click **Pin this IP** when Claude and ChatGPT show the same allowed address. Leave that server selected.
 5. Leave **Guard** on. It is on by default.
-6. Click **Open Claude** when that button is available.
+6. Click **Open Claude** or **Open ChatGPT** when those buttons are available.
 
 Check Again is Command-R. The same button is in the menu bar and the Dock menu.
 
@@ -39,21 +39,23 @@ Check Again is Command-R. The same button is in the menu bar and the Dock menu.
 
 | Row | What it is telling you | What to click |
 |---|---|---|
-| Tunnel route | Traffic would go out over Wi-Fi or Ethernet. | Reconnect Surfshark. There is no button. Guard quits Claude and Codex if this happens while they are open. |
-| Exit IP | The address Claude sees is HK, CN, or MO, or it is not the address you pinned. | Reconnect the pinned server, or click **Pin this IP** if this new address is the one you want to keep. |
-| ChatGPT exit | ChatGPT sees a different address, or an address in HK, CN, or MO. | Reconnect Surfshark. Claude can look fine while ChatGPT does not. |
-| Shell startup files | A startup file still sets a proxy or a custom API address. | **Comment out**. Open a new terminal afterward. |
+| Tunnel route | Traffic would go out over Wi-Fi or Ethernet. | Reconnect Surfshark. There is no button. Guard quits Claude, ChatGPT, `claude`, and `codex` if this happens while they are open. |
+| Exit IP | Claude's address is HK, CN, or MO, it is not the address you pinned, it differs from ChatGPT, or the shared exit is not pinned yet. | Reconnect the pinned server. **Pin this IP** appears only when both traces returned the same allowed address. |
+| ChatGPT exit | ChatGPT sees a different address, an address in HK, CN, or MO, or the shared exit is not pinned yet. | Reconnect Surfshark. The two exits are peers. A split is a failed check. |
+| Service reachability | curl's headers for claude.ai or chatgpt.com include `cf-mitigated`, or status 403 or 421. | Nothing to click. This is curl's result. It does not turn the open buttons off. |
+| Shell startup files | A startup file still sets a proxy or a custom API address. | **Comment out**. Open a new terminal before using claude or ChatGPT. |
 | Login environment | The same kind of setting is on for apps launched from the Dock. | **Remove**. |
 | Claude configs | A Claude settings file points at a relay or a proxy. Project files count, not only the one in your home folder. | **Remove**. |
 | Codex config | `~/.codex/config.toml` points at a relay. | **Comment out**. |
-| System proxy | macOS itself has an HTTP, HTTPS, SOCKS, or automatic proxy turned on. `Claude.app` follows that. | **Turn off**. macOS asks for your password. Surfshark is left alone. |
-| Open app sockets | Claude or Codex still has a connection on Wi-Fi or Ethernet from before the VPN came up. | **Quit apps**. |
-| IPv6 | IPv6 would leave outside the tunnel, or it shows a different country. | **Set link-local**. macOS asks for your password. **Restore automatic** puts it back later. |
-| Time zone | The Mac clock is not Tokyo. | Optional. **Set to Tokyo** only if you want the clock to match a Japan exit. |
+| System proxy | macOS itself has an HTTP, HTTPS, SOCKS, or automatic proxy turned on. Claude and ChatGPT follow that. | **Turn off**. macOS asks for your password. Surfshark is left alone. |
+| Open app sockets | Claude, ChatGPT, or Codex still has a connection on Wi-Fi or Ethernet from before the VPN came up. | **Quit apps**. |
+| IPv6 | IPv6 would leave outside the tunnel, or claude.ai or chatgpt.com returned a real IPv6 address in HK, CN, MO, or a different country from that host's IPv4 exit. | **Set link-local**. macOS asks for your password. **Restore automatic** puts it back later. |
+| DNS | A resolver is on Wi-Fi or Ethernet while the IPv4 route is a tunnel. | **Flush** only clears the cache. An empty circle means the nameservers were read. That is not a pass. |
+| Time zone and locale | An exit is JP and the Mac clock is not Tokyo, or a locale or input source carries HK, CN, or MO while an exit is not that country. | Optional. **Set to Tokyo** only if you want the clock to match a Japan exit. Locale is not rewritten. |
 
 **Clean leftovers** runs the shell, login-environment, Claude config, and Codex config fixes together. It stays off when those four are already clear. It does not change the VPN, the pinned IP, IPv6, DNS, or the time zone.
 
-Any file Cavok edits is copied first, next to the original, with `.cavok-bak` on the name.
+The first time Cavok edits a file, it saves `.cavok-bak` next to the original and keeps that first copy. A later clean does not replace it.
 
 ## Guard
 
@@ -65,10 +67,15 @@ Guard is the switch in the menu-bar panel and in Settings. Leave it on.
 | A check actually comes back as HK, CN, or MO | Quits those same apps. |
 | You close the lid | Quits them normally, while the tunnel is still up. |
 | You open Claude or ChatGPT while the check is already bad | Quits them again. |
-| The IP changes but the country is still allowed | Warning only. It does not quit anything. |
-| A check times out | Nothing is quit. An empty circle means Cavok could not measure. |
+| A pin is set and either exit is a different IP, including another Japan IP | Quits those same apps. |
+| Claude and ChatGPT were both read and the addresses differ | Quits those same apps. |
+| A shell file, the login environment, a Claude config, the Codex config, or a system proxy still has a leftover | Quits those same apps. |
+| IPv6 is on Wi-Fi or Ethernet, or either host returned a real IPv6 address in HK, CN, MO, or a different country from that host's IPv4 exit | Quits those same apps. |
+| No pin yet, and both exits are the same allowed country | Nothing is quit. Both exit rows stay orange until you pin that shared address. |
+| The time zone, the locale, a curl challenge, or DNS | Nothing is quit. DNS warns only when a resolver interface is Wi-Fi or Ethernet while the IPv4 route is a tunnel. |
+| A check times out | Nothing is quit. The open buttons stay off until both exits have been read. |
 
-Cavok cannot tell npm's `claude` apart from other programs by the short process name, because that name is `node`. It matches the command line instead.
+Cavok matches `claude`, `claude-code`, and `codex` (including `codex-aarch64-…`) by the program name. When the program is `node`, it matches the script path, including `@anthropic-ai/claude-code/` `cli.js`. A mention in vim, grep, man, or git does not count.
 
 ## Buttons along the bottom
 
@@ -76,9 +83,12 @@ Cavok cannot tell npm's `claude` apart from other programs by the short process 
 |---|---|
 | Check Again | Runs every row again. |
 | Clean leftovers | Fixes the file and environment rows that are orange. |
-| Open Claude | Opens `Claude.app`, or claude.ai if the app is not installed. Stays off when the route is not a tunnel, either exit is HK, CN, or MO, or a socket is still on Wi-Fi or Ethernet. |
+| Open Claude | Opens `Claude.app`, or claude.ai if the app is not installed. |
+| Open ChatGPT | Opens `ChatGPT.app`, or chatgpt.com if the app is not installed. |
 | Open Window | Brings the main window back. |
-| Quit | Quits Cavok. Claude keeps running. |
+| Quit | Quits Cavok. Claude and ChatGPT keep running. |
+
+Both open buttons use one rule. They stay off until both exits have been read, the countries are the same allowed country, the addresses are equal, the route is a tunnel, no socket is on Wi-Fi or Ethernet, and Guard has nothing to quit for. A missing ChatGPT trace leaves both off. A curl challenge does not.
 
 ## Settings
 

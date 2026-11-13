@@ -14,7 +14,7 @@ enum CheckDump {
             print("CHECK codex=\(report.codexKeys.joined(separator: ",")) missing=\(report.codexMissing) error=\(report.codexError ?? "-")")
             print("CHECK proxy=\(report.proxyEnabled.joined(separator: ","))")
             print("CHECK sockets=\(report.socketLeaks.map { "\($0.pid):\($0.localAddress)" }.joined(separator: ","))")
-            print("CHECK ipv6Blocked=\(report.ipv6Blocked) skipped=\(report.ipv6Skipped) ipv6=\(report.ipv6IP ?? "-") loc=\(report.ipv6Loc ?? "-")")
+            print("CHECK ipv6Missing=\(report.ipv6Missing) skipped=\(report.ipv6Skipped) claude=\(report.ipv6Claude.ip ?? "-") \(report.ipv6Claude.loc ?? "-") chatgpt=\(report.ipv6ChatGPT.ip ?? "-") \(report.ipv6ChatGPT.loc ?? "-")")
             print("CHECK dns=\(report.nameservers.prefix(4).joined(separator: ","))")
             print("CHECK zone=\(report.timeZone)")
             print("CHECK traceError=\(report.traceError ?? "-")")

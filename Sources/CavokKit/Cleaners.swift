@@ -224,19 +224,28 @@ public enum ServiceList {
 
 public enum DNSParse {
     public static func nameservers(in text: String) -> [String] {
-        let head: String
+        let body = head(text)
+        return unique(in: body, pattern: #"nameserver\[\d+\]\s*:\s*(\S+)"#)
+    }
+
+    /// `if_index : 12 (utun4)` from the primary resolvers. Scoped queries are left out.
+    public static func interfaces(in text: String) -> [String] {
+        unique(in: head(text), pattern: #"if_index\s*:\s*\d+\s*\(([^)]+)\)"#)
+    }
+
+    static func head(_ text: String) -> String {
         if let scoped = text.range(of: "DNS configuration (for scoped queries)") {
-            head = String(text[..<scoped.lowerBound])
-        } else {
-            head = text
+            return String(text[..<scoped.lowerBound])
         }
-        guard let regex = try? NSRegularExpression(
-            pattern: #"nameserver\[\d+\]\s*:\s*(\S+)"#
-        ) else { return [] }
-        let range = NSRange(head.startIndex..., in: head)
+        return text
+    }
+
+    private static func unique(in text: String, pattern: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(text.startIndex..., in: text)
         var seen: [String] = []
-        for match in regex.matches(in: head, range: range) {
-            guard let valueRange = Range(match.range(at: 1), in: head) else { continue }
+        for match in regex.matches(in: text, range: range) {
+            guard let valueRange = Range(match.range(at: 1), in: text) else { continue }
             let value = String(text[valueRange])
             if !seen.contains(value) { seen.append(value) }
         }
@@ -247,8 +256,145 @@ public enum DNSParse {
 public enum RegionGate {
     public static let blocked: Set<String> = ["HK", "CN", "MO"]
 
-    public static func allowsClaude(_ loc: String?) -> Bool {
+    public static func allows(_ loc: String?) -> Bool {
         guard let loc, !loc.isEmpty else { return false }
         return !blocked.contains(loc.uppercased())
+    }
+}
+
+public struct IPv6HostResult: Equatable, Sendable {
+    public var host: String
+    public var ip: String?
+    public var loc: String?
+
+    public init(host: String, ip: String? = nil, loc: String? = nil) {
+        self.host = host
+        self.ip = ip
+        self.loc = loc
+    }
+}
+
+public enum IPv6Trace {
+    /// An `ip=` with no colon, or one that contains `::ffff:`, is not an IPv6 result.
+    public static func result(host: String, trace: String) -> IPv6HostResult {
+        guard let ip = realAddress(TraceParse.field("ip", in: trace)) else {
+            return IPv6HostResult(host: host)
+        }
+        return IPv6HostResult(host: host, ip: ip, loc: TraceParse.field("loc", in: trace))
+    }
+
+    public static func realAddress(_ value: String?) -> String? {
+        guard let value, value.contains(":"), !value.lowercased().contains("::ffff:") else { return nil }
+        return value
+    }
+}
+
+public struct PageHeaders: Equatable, Sendable {
+    public var status: Int?
+    public var mitigated: Bool
+    public var challenged: Bool
+
+    public init(status: Int? = nil, mitigated: Bool = false, challenged: Bool = false) {
+        self.status = status
+        self.mitigated = mitigated
+        self.challenged = challenged
+    }
+}
+
+public enum ReachParse {
+    /// Last HTTP status, plus whether any hop was `cf-mitigated` or status 403 or 421.
+    public static func parse(_ headers: String) -> PageHeaders {
+        var last: Int?
+        var mitigated = false
+        var challenged = false
+        for raw in headers.split(whereSeparator: \.isNewline) {
+            let line = String(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+            let lower = line.lowercased()
+            if lower.hasPrefix("http/") {
+                let parts = line.split(separator: " ")
+                if parts.count >= 2, let code = Int(parts[1]) {
+                    last = code
+                    if code == 403 || code == 421 { challenged = true }
+                }
+            } else if lower.hasPrefix("cf-mitigated:") {
+                mitigated = true
+                challenged = true
+            }
+        }
+        return PageHeaders(status: last, mitigated: mitigated, challenged: challenged)
+    }
+
+    public static func challengedHosts(claude: String, chatgpt: String) -> [String] {
+        var hosts: [String] = []
+        if parse(claude).challenged { hosts.append("claude.ai") }
+        if parse(chatgpt).challenged { hosts.append("chatgpt.com") }
+        return hosts
+    }
+}
+
+public struct LocaleTag: Equatable, Sendable {
+    public var source: String
+    public var region: String
+
+    public init(source: String, region: String) {
+        self.source = source
+        self.region = region
+    }
+}
+
+public enum LocaleTags {
+    /// HK, CN, and MO tags in the three local preference values. Simplified Chinese input is CN. Traditional Chinese input is HK.
+    public static func find(locale: String, languages: [String], inputSources: String) -> [LocaleTag] {
+        var tags: [LocaleTag] = []
+        func add(_ source: String, _ region: String) {
+            let code = region.uppercased()
+            guard RegionGate.blocked.contains(code) else { return }
+            let tag = LocaleTag(source: source, region: code)
+            if !tags.contains(tag) { tags.append(tag) }
+        }
+        for region in regions(in: locale) { add("AppleLocale", region) }
+        for language in languages {
+            for region in regions(in: language) { add("AppleLanguages", region) }
+        }
+        for region in regions(in: inputSources) { add("AppleEnabledInputSources", region) }
+        let modes = inputSources.lowercased()
+        if modes.contains("com.apple.inputmethod.scim") { add("AppleEnabledInputSources", "CN") }
+        if modes.contains("com.apple.inputmethod.tcim") { add("AppleEnabledInputSources", "HK") }
+        return tags
+    }
+
+    /// Tag regions that are not the country of every exit. No exits means no mismatch.
+    public static func regionsThatDiffer(_ tags: [LocaleTag], from exits: [String]) -> [String] {
+        let known = exits.map { $0.uppercased() }.filter { !$0.isEmpty }
+        guard !known.isEmpty else { return [] }
+        var found: [String] = []
+        for tag in tags {
+            let differs = known.contains { $0 != tag.region }
+            if differs, !found.contains(tag.region) { found.append(tag.region) }
+        }
+        return found
+    }
+
+    static func regions(in text: String) -> [String] {
+        var found: [String] = []
+        func take(_ pattern: String) {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { return }
+            let range = NSRange(text.startIndex..., in: text)
+            for match in regex.matches(in: text, range: range) {
+                guard let valueRange = Range(match.range(at: 1), in: text) else { continue }
+                let code = String(text[valueRange]).uppercased()
+                if RegionGate.blocked.contains(code), !found.contains(code) { found.append(code) }
+            }
+        }
+        take(#"(?i)(?:^|[^A-Za-z])(hk|cn|mo)(?=[^A-Za-z]|$)"#)
+        take(#"(?i)@rg=(hk|cn|mo)"#)
+        return found
+    }
+}
+
+public enum BackupFile {
+    /// Create `.cavok-bak` only when that file is absent. Never replace one.
+    public static func shouldCreate(backupExists: Bool) -> Bool {
+        !backupExists
     }
 }

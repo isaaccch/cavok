@@ -16,7 +16,17 @@ if [[ -z "$identity" ]]; then
 fi
 [[ -n "$identity" ]] || identity=-
 
-swift build -c $config --package-path "$here" --scratch-path "$scratch" 2>&1 | grep -E "error|warning|Build complete" | grep -v "^\[" || true
+build_log=$(mktemp "${TMPDIR:-/tmp}/cavok-build.XXXXXX")
+set +e
+swift build -c $config --package-path "$here" --scratch-path "$scratch" >"$build_log" 2>&1
+build_status=$?
+set -e
+grep -E "error|warning|Build complete" "$build_log" | grep -v "^\[" || true
+rm -f "$build_log"
+if [[ $build_status -ne 0 ]]; then
+  echo "build failed"
+  exit "$build_status"
+fi
 bin="$scratch/$config/$name"
 [[ -x "$bin" ]] || { echo "build failed"; exit 1; }
 stale=$(find "$here/Sources" -name '*.swift' -newer "$bin" | head -1)

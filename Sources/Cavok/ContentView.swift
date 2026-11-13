@@ -46,8 +46,13 @@ struct ContentView: View {
                 }
                 ToolbarItem {
                     Button("Open Claude") { store.perform(.openClaude) }
-                        .disabled(!store.canOpenClaude || store.busy)
-                        .help(store.canOpenClaude ? "Open Claude while this exit is up." : "Available when the route is a tunnel and the exit country is not HK, CN, or MO.")
+                        .disabled(!store.canOpen || store.busy)
+                        .help(store.openHelp)
+                }
+                ToolbarItem {
+                    Button("Open ChatGPT") { store.perform(.openChatGPT) }
+                        .disabled(!store.canOpen || store.busy)
+                        .help(store.openHelp)
                 }
                 ToolbarItem {
                     Button("Check Again") { store.inspect() }

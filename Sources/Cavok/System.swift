@@ -29,14 +29,23 @@ struct MachineReport: Sendable {
     var chatgptIP: String?
     var chatgptLoc: String?
     var chatgptError: String?
-    var ipv6IP: String?
-    var ipv6Loc: String?
-    var ipv6Blocked = true
+    var ipv6Missing = false
     var ipv6Skipped = false
+    var ipv6Claude = IPv6HostResult(host: "claude.ai")
+    var ipv6ChatGPT = IPv6HostResult(host: "chatgpt.com")
+    var claudePage = PageHeaders()
+    var chatgptPage = PageHeaders()
+    var claudePageError: String?
+    var chatgptPageError: String?
     var proxyEnabled: [String] = []
     var socketLeaks: [SocketLeak] = []
     var nameservers: [String] = []
+    var dnsInterfaces: [String] = []
+    var dnsPhysicalInterfaces: [String] = []
     var timeZone = TimeZone.current.identifier
+    var appleLocale = ""
+    var appleLanguages: [String] = []
+    var inputSources = ""
 }
 
 enum System {
@@ -65,6 +74,11 @@ enum System {
         return run("/usr/bin/curl", args)
     }
 
+    /// IPv4 response headers only. The body is discarded.
+    nonisolated static func curlHeaders(url: String) -> Exec {
+        run("/usr/bin/curl", ["-4", "-sS", "-D", "-", "-o", "/dev/null", "--max-time", "8", url])
+    }
+
     nonisolated static func routeLookup(_ destination: String, inet6: Bool = false) -> Exec {
         var args = ["-n", "get"]
         if inet6 { args.append("-inet6") }
@@ -73,7 +87,7 @@ enum System {
     }
 
     nonisolated static func protectedProcesses() -> [ProtectedProcess] {
-        let listed = run("/bin/ps", ["-axo", "pid=,comm=,args="])
+        let listed = run("/bin/ps", ["-axww", "-o", "pid=,args="])
         let selfPid = ProcessInfo.processInfo.processIdentifier
         return ProcessMatch.protected(in: listed.stdout).filter { $0.pid != selfPid }
     }
@@ -162,15 +176,22 @@ enum System {
     nonisolated static func setTimeZone(_ name: String, automatic: Bool) -> Exec {
         guard isSafeZone(name) else { return Exec(stderr: "The time zone name is not one Cavok will apply.", code: 1) }
         let auto = automatic ? "true" : "false"
+        let quoted = bashQuote(name)
         return admin("""
-        /usr/sbin/systemsetup -settimezone \(bashQuote(name))
+        name=\(quoted)
+        /usr/sbin/systemsetup -settimezone "$name"
+        got=$(/usr/sbin/systemsetup -gettimezone)
+        case "$got" in
+          *"$name"*) ;;
+          *) echo "Time zone did not stick: $got" >&2; exit 1 ;;
+        esac
         /usr/bin/defaults write /Library/Preferences/com.apple.timezone.auto Active -bool \(auto)
         """)
     }
 
     nonisolated static func admin(_ body: String) -> Exec {
         let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("cavok-\(UUID().uuidString).sh")
-        let script = "#!/bin/bash\nset -uo pipefail\n\(body)\n"
+        let script = "#!/bin/bash\nset -euo pipefail\n\(body)\n"
         do {
             try script.write(to: url, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
@@ -188,6 +209,36 @@ enum System {
     nonisolated static func isSafeZone(_ name: String) -> Bool {
         let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_+/-")
         return !name.isEmpty && name.count < 80 && name.unicodeScalars.allSatisfy { allowed.contains($0) }
+    }
+
+    nonisolated static func localePreferences() -> (locale: String, languages: [String], inputSources: String) {
+        let domain = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain) ?? [:]
+        let locale = domain["AppleLocale"] as? String ?? ""
+        let languages = domain["AppleLanguages"] as? [String] ?? []
+        let sources = domain["AppleEnabledInputSources"] as? [Any] ?? []
+        let text = sources.flatMap { strings(in: $0) }.joined(separator: "\n")
+        return (locale, languages, text)
+    }
+
+    nonisolated private static func strings(in value: Any) -> [String] {
+        switch value {
+        case let text as String:
+            return [text]
+        case let dict as [String: Any]:
+            return dict.values.flatMap { strings(in: $0) }
+        case let list as [Any]:
+            return list.flatMap { strings(in: $0) }
+        default:
+            return []
+        }
+    }
+}
+
+enum FileBackup {
+    nonisolated static func copyOnce(_ url: URL) throws {
+        let backup = URL(fileURLWithPath: url.path + ".cavok-bak")
+        guard BackupFile.shouldCreate(backupExists: FileManager.default.fileExists(atPath: backup.path)) else { return }
+        try FileManager.default.copyItem(at: url, to: backup)
     }
 }
 
@@ -207,11 +258,7 @@ enum HomeFiles {
             guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
             let edit = ShellCleaner.commenting(text, date: date)
             guard !edit.removed.isEmpty else { continue }
-            let backup = home.appendingPathComponent(name + ".cavok-bak")
-            if FileManager.default.fileExists(atPath: backup.path) {
-                try FileManager.default.removeItem(at: backup)
-            }
-            try FileManager.default.copyItem(at: url, to: backup)
+            try FileBackup.copyOnce(url)
             try Data(edit.text.utf8).write(to: url, options: .atomic)
             let unique = Array(Set(edit.removed)).sorted().joined(separator: ", ")
             notes.append("\(name) (\(unique))")
@@ -224,11 +271,7 @@ enum HomeFiles {
         let data = try Data(contentsOf: url)
         let edit = try SettingsCleaner.cleaning(data)
         guard let written = edit.data else { return "" }
-        let backup = home.appendingPathComponent(".claude/settings.json.cavok-bak")
-        if FileManager.default.fileExists(atPath: backup.path) {
-            try FileManager.default.removeItem(at: backup)
-        }
-        try FileManager.default.copyItem(at: url, to: backup)
+        try FileBackup.copyOnce(url)
         try written.write(to: url, options: .atomic)
         return edit.removed.sorted().joined(separator: ", ")
     }
@@ -316,11 +359,7 @@ enum ConfigFiles {
     }
 
     nonisolated private static func backup(_ url: URL) throws {
-        let backup = URL(fileURLWithPath: url.path + ".cavok-bak")
-        if FileManager.default.fileExists(atPath: backup.path) {
-            try FileManager.default.removeItem(at: backup)
-        }
-        try FileManager.default.copyItem(at: url, to: backup)
+        try FileBackup.copyOnce(url)
     }
 
     nonisolated private static func expand(_ path: String, home: URL) -> String {
@@ -366,22 +405,38 @@ enum Machine {
         }
         report.ipv6RouteInterface = iface6
         report.ipv6RouteIsPhysical = iface6.map { RouteParse.isPhysical($0, hardware: hardware) } ?? false
+        report.ipv6Missing = iface6 == nil
+        report.ipv6Skipped = report.ipv6RouteIsPhysical
         report.proxyEnabled = ProxyParse.enabled(in: (await proxy).stdout)
         report.socketLeaks = System.socketLeaks(for: System.protectedProcesses())
-        report.nameservers = DNSParse.nameservers(in: (await dns).stdout)
+        let dnsText = (await dns).stdout
+        report.nameservers = DNSParse.nameservers(in: dnsText)
+        report.dnsInterfaces = DNSParse.interfaces(in: dnsText)
+        report.dnsPhysicalInterfaces = report.dnsInterfaces.filter { RouteParse.isPhysical($0, hardware: hardware) }
         report.timeZone = TimeZone.current.identifier
+        let locale = System.localePreferences()
+        report.appleLocale = locale.locale
+        report.appleLanguages = locale.languages
+        report.inputSources = locale.inputSources
 
         guard tunnel else {
             report.traceSkipped = true
-            report.ipv6Blocked = true
-            report.ipv6Skipped = report.ipv6RouteIsPhysical
             return report
         }
 
+        let probe6 = !report.ipv6Missing && !report.ipv6RouteIsPhysical
         async let v4 = System.curlTrace(url: "https://claude.ai/cdn-cgi/trace", ipv6: false)
         async let gpt = System.curlTrace(url: "https://chatgpt.com/cdn-cgi/trace", ipv6: false)
+        async let headC = System.curlHeaders(url: "https://claude.ai/")
+        async let headG = System.curlHeaders(url: "https://chatgpt.com/")
+        async let v6c: Exec = probe6 ? System.curlTrace(url: "https://claude.ai/cdn-cgi/trace", ipv6: true) : Exec(code: 0)
+        async let v6g: Exec = probe6 ? System.curlTrace(url: "https://chatgpt.com/cdn-cgi/trace", ipv6: true) : Exec(code: 0)
         let v4r = await v4
         let gptr = await gpt
+        let headCr = await headC
+        let headGr = await headG
+        let c6 = await v6c
+        let g6 = await v6g
         if v4r.code == 0 {
             report.ip = TraceParse.field("ip", in: v4r.stdout)
             report.loc = TraceParse.field("loc", in: v4r.stdout)
@@ -398,19 +453,19 @@ enum Machine {
             let reason = gptr.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             report.chatgptError = reason.isEmpty ? "Could not reach chatgpt.com." : reason
         }
-
-        if report.ipv6RouteIsPhysical {
-            report.ipv6Blocked = true
-            report.ipv6Skipped = true
-            return report
+        report.claudePage = ReachParse.parse(headCr.stdout)
+        report.chatgptPage = ReachParse.parse(headGr.stdout)
+        if headCr.code != 0, report.claudePage.status == nil, !report.claudePage.mitigated {
+            let reason = headCr.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            report.claudePageError = reason.isEmpty ? "Could not read the headers." : reason
         }
-        let v6r = System.curlTrace(url: "https://claude.ai/cdn-cgi/trace", ipv6: true)
-        if v6r.code == 0, let ip = TraceParse.field("ip", in: v6r.stdout) {
-            report.ipv6Blocked = false
-            report.ipv6IP = ip
-            report.ipv6Loc = TraceParse.field("loc", in: v6r.stdout)
-        } else {
-            report.ipv6Blocked = true
+        if headGr.code != 0, report.chatgptPage.status == nil, !report.chatgptPage.mitigated {
+            let reason = headGr.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            report.chatgptPageError = reason.isEmpty ? "Could not read the headers." : reason
+        }
+        if probe6 {
+            report.ipv6Claude = IPv6Trace.result(host: "claude.ai", trace: c6.code == 0 ? c6.stdout : "")
+            report.ipv6ChatGPT = IPv6Trace.result(host: "chatgpt.com", trace: g6.code == 0 ? g6.stdout : "")
         }
         return report
     }

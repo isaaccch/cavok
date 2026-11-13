@@ -39,7 +39,7 @@ struct MenuBarView: View {
             Divider()
             VStack(alignment: .leading, spacing: Space.sm) {
                 Toggle("Guard", isOn: Binding(get: { store.guardOn }, set: { store.setGuard($0) }))
-                    .help("Quit Claude, ChatGPT, claude, and codex when the route leaves the tunnel, the exit is HK, CN, or MO, or the Mac sleeps.")
+                    .help("Quit Claude, ChatGPT, claude, and codex when the route, either exit, a pin, a leftover, or IPv6 is blocked, and when the Mac sleeps. A timeout does not.")
                 HStack(spacing: Space.sm) {
                     Button("Check Again") { store.inspect() }
                         .disabled(store.busy)
@@ -49,7 +49,14 @@ struct MenuBarView: View {
                 }
                 HStack(spacing: Space.sm) {
                     Button("Open Claude") { store.perform(.openClaude) }
-                        .disabled(!store.canOpenClaude || store.busy)
+                        .disabled(!store.canOpen || store.busy)
+                        .help(store.openHelp)
+                    Button("Open ChatGPT") { store.perform(.openChatGPT) }
+                        .disabled(!store.canOpen || store.busy)
+                        .help(store.openHelp)
+                    Spacer(minLength: 0)
+                }
+                HStack(spacing: Space.sm) {
                     Button("Open Window") { showWindow() }
                     Spacer(minLength: 0)
                     Button("Quit") { NSApp.terminate(nil) }
@@ -83,7 +90,7 @@ struct MenuBarSettings: View {
                 Toggle("Show Cavok in the menu bar", isOn: $showMenuBar)
                 Toggle("Guard", isOn: Binding(get: { store.guardOn }, set: { store.setGuard($0) }))
             } footer: {
-                Text("Guard quits Claude, ChatGPT, claude, and codex when the route leaves the tunnel, the exit is HK, CN, or MO, or the Mac sleeps. A different Japan IP stays a warning.")
+                Text("Guard quits Claude, ChatGPT, claude, and codex when the route leaves the tunnel, either exit is HK, CN, or MO, the two exits differ, a pinned IP does not match, a proxy or custom API address is still set, or IPv6 leaks. Sleep quits them too. Another Japan IP fails the pin. A timeout, the time zone, a curl challenge, or DNS does not quit anything.")
             }
             Section {
                 if store.workspacePaths.isEmpty {

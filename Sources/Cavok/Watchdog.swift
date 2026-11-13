@@ -113,7 +113,7 @@ final class Watchdog {
     private func onProtectedLaunch() {
         guard let store, store.guardOn, store.blockingReason != nil else { return }
         let labels = System.terminateProtected(force: true)
-        store.note = "Guard quit \(Self.list(labels.isEmpty ? ["Claude"] : labels)). The exit is blocked."
+        store.note = "Guard quit \(Self.list(labels.isEmpty ? ["Claude", "ChatGPT"] : labels)). The check is blocked."
     }
 
     private static func list(_ labels: [String]) -> String {

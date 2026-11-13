@@ -11,6 +11,8 @@ import Testing
           flags: <UP,HOST,DONE>
     """
     #expect(RouteParse.interfaceName(in: text) == "utun4")
+    #expect(RouteParse.interfaceName(in: "route: not in table\n") == nil)
+    #expect(RouteParse.interfaceName(in: "   interface:   \n") == nil)
     #expect(RouteParse.isTunnel("utun4"))
     #expect(!RouteParse.isPhysical("utun4", hardware: ["en0"]))
     #expect(RouteParse.isPhysical("en0", hardware: ["en0"]))
@@ -71,16 +73,25 @@ import Testing
 
 @Test func processMatchUsesTheCommandLine() {
     let ps = """
-      10 node            node /opt/homebrew/bin/claude
-      11 codex-aarch64-ap /Users/me/.npm/codex-aarch64-apple-darwin
-      12 Claude          /Applications/Claude.app/Contents/MacOS/Claude
-      13 ChatGPT         /Applications/ChatGPT.app/Contents/MacOS/ChatGPT
-      14 vim             vim /Users/me/notes.txt
-      15 node            node /usr/local/bin/unrelated
+      10 node /opt/homebrew/bin/claude
+      11 /Users/me/.npm/codex-aarch64-apple-darwin
+      12 /Applications/Claude.app/Contents/MacOS/Claude
+      13 /Applications/ChatGPT.app/Contents/MacOS/ChatGPT
+      14 vim /Users/me/notes.txt
+      15 node /usr/local/bin/unrelated
+      16 vim claude
+      17 grep claude
+      18 man claude
+      19 git commit -m "fix claude bug"
+      20 node /Users/me/.npm/_npx/x/node_modules/@anthropic-ai/claude-code/cli.js
+      21 node /Users/me/.local/share/claude/cli.js
+      22 node /opt/homebrew/bin/codex
+      23 grep codex
+      24 node --experimental-strip-types /opt/homebrew/bin/claude-code
     """
     let found = ProcessMatch.protected(in: ps)
-    #expect(found.map(\.pid) == [10, 11, 12, 13])
-    #expect(found.map(\.label) == ["claude", "codex", "Claude", "ChatGPT"])
+    #expect(found.map(\.pid) == [10, 11, 12, 13, 20, 21, 22, 24])
+    #expect(found.map(\.label) == ["claude", "codex", "Claude", "ChatGPT", "claude", "claude", "codex", "claude"])
 }
 
 @Test func claudeJsonDropsRelayInsideMcpEnv() throws {
