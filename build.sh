@@ -32,6 +32,13 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin" "$app/Contents/MacOS/$name"
 sed -e "s/__BUILD__/$(date +%Y%m%d%H%M)/" "$here/Info.plist.in" > "$app/Contents/Info.plist"
+if [[ -f "$here/Icon/AppIcon.icon/Assets/mark.png" ]]; then
+  icns="$here/Resources/AppIcon.icns"
+  if [[ ! -f "$icns" || "$here/Icon/AppIcon.icon/Assets/mark.png" -nt "$icns" ]]; then
+    "$here/tools/make_icon.sh"
+  fi
+  cp -X "$icns" "$app/Contents/Resources/"
+fi
 xattr -cr "$app"
 codesign --force --sign "$identity" "$app" 2>&1 | grep -v "replacing existing signature" || true
 echo "installed $app (signed: ${identity})"

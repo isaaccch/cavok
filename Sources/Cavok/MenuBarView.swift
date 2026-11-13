@@ -34,8 +34,8 @@ struct MenuBarView: View {
                 }
                 .padding(Space.lg)
             }
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxHeight: 560)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 420)
             Divider()
             VStack(alignment: .leading, spacing: Space.sm) {
                 Toggle("Guard", isOn: Binding(get: { store.guardOn }, set: { store.setGuard($0) }))
@@ -56,8 +56,9 @@ struct MenuBarView: View {
                 }
             }
             .padding(Space.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(width: 360)
+        .frame(width: 380)
         .modifier(FixConfirmations(confirm: $confirm))
         .task {
             CavokActions.openMain = { showWindow() }
