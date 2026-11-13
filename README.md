@@ -1,8 +1,58 @@
 # Cavok
 
-Cavok sits in the Mac menu bar and checks this Mac before you use Claude or ChatGPT. A green check means that one local check passed. It does not mean the account is safe. Cavok never logs in, never reads a card, and cannot switch Surfshark for you.
+Cavok is a personal macOS menu-bar app for one setup: this Mac is in Hong Kong, Surfshark is supposed to send traffic out through a Japan static server, and Claude and ChatGPT are used on that path. It checks the Mac before those apps run, and it can quit them when the path looks wrong.
+
+A green check means that one local check passed. It does not mean the account is safe. Cavok never logs in, never reads a card, and cannot switch Surfshark for you.
 
 Hong Kong, mainland China, and Macau are the only countries it treats as a bad exit.
+
+## What it is for
+
+The point is local hygiene on this machine. Claude and ChatGPT are peers. A split tunnel can make one look fine while the other leaves somewhere else, so Cavok reads both and treats a disagreement as a failed check.
+
+Before you open either app, Cavok looks for the ways this Mac can still show a home address, a relay, or a different exit:
+
+- The route to the public internet is Wi-Fi or Ethernet instead of a tunnel. The lookup is `route -n get 1.1.1.1`, because a WireGuard-style tunnel often leaves the literal default route on `en0`.
+- `claude.ai` and `chatgpt.com` see different IP addresses or countries. Each row is its own request to `/cdn-cgi/trace`.
+- Either exit is HK, CN, or MO, or either address is not the one you pinned. **Pin this IP** saves the shared address only when both traces returned that same allowed IP.
+- A shell startup file, the login environment, a Claude settings file, or `~/.codex/config.toml` still points at a proxy or a non-official API host. Codex is this config check. It is not an exit row and it is not a login test.
+- macOS has an HTTP, HTTPS, SOCKS, or automatic proxy turned on.
+- Claude, ChatGPT, `claude`, or `codex` still has a connection whose local address is on Wi-Fi or Ethernet.
+- IPv6 is a real second path. An IPv4 address, including an address returned through `::ffff:`, does not count as IPv6.
+- A DNS resolver is bound to Wi-Fi or Ethernet while the IPv4 route is a tunnel. Reading the resolver addresses is not, by itself, a pass.
+- The clock is not Tokyo while an exit is JP, or the locale, languages, or input sources still carry HK, CN, or MO. That row is a warning. It does not quit anything, and it does not rewrite the locale.
+
+Guard is the part that acts. While it is on, Cavok quits Claude, ChatGPT, `claude`, and `codex` when the route leaves the tunnel, either exit is a bad country, the two exits disagree, a pinned IP no longer matches, a proxy or relay is still set, or IPv6 is a real leak. It also quits them when the lid closes, while the tunnel is still up. A timeout, the clock, the locale, a curl challenge, and ordinary DNS do not quit anything.
+
+**Open Claude** and **Open ChatGPT** stay off until both exits have been read and they agree on an allowed address, the route is a tunnel, no socket is on Wi-Fi or Ethernet, and Guard has nothing to quit for. The buttons open the apps, or the websites if the apps are not installed. They do not log in.
+
+## What the Exit rows are not
+
+The four rows under **Exit** are a report on the path, not a safety score and not a login test.
+
+| Row | What a result means |
+|---|---|
+| Tunnel route | Where the next packet would go. Green means a tunnel interface. Orange means Wi-Fi or Ethernet, and Cavok has not contacted either site. |
+| Exit IP | The IP and country on Claude's Cloudflare trace. |
+| ChatGPT exit | The IP and country on ChatGPT's Cloudflare trace. A different address is a split, not a copy of the Claude row. |
+| Service reachability | Whether curl got a normal response from `claude.ai/` and `chatgpt.com/`, or a Cloudflare challenge, 403, or 421. A green trace can sit next to an orange challenge. A browser can still reach a login page when curl cannot. |
+
+A green Exit means the route is a tunnel, both sites saw the same allowed IP, and curl was not challenged. It does not mean you can log in. It does not mean Claude or ChatGPT will accept the account. It does not mean the IP looks like a home connection. Vendors can still call that address a VPN, a datacenter, or a proxy. Cavok does not ask them.
+
+A Japan exit also does not change where the account was created, where the card was issued, or where the person is sitting. Anthropic's supported-regions rule is about physical location and the entity behind the account. OpenAI says access from outside its country list can lead to a block, and that a VPN can trigger one. Cavok can shrink some local mismatches. It cannot make the setup compliant, and it cannot tell you how close you are to being flagged.
+
+## What it leaves alone
+
+- Account country, card country, phone number, and email age. Cavok never sees them.
+- IP reputation, ASN, and whether the address is residential. That would send the IP to someone else's service. Cavok does not.
+- Surfshark's selected server, protocol, Kill Switch, and Bypasser. Any `utun` looks like a tunnel.
+- The browser. Sockets are checked for Claude, ChatGPT, `claude`, and `codex`. Chrome and Safari are not. WebRTC, DNS-over-HTTPS, and Private Relay are not.
+- The phone apps. A phone on home Wi-Fi writes that address onto the same account.
+- Project files on the Desktop, until you add that folder in Settings.
+
+Reports name the setting that was found. They do not include secret values, and nothing is uploaded to a Cavok server. The pinned IP, the saved time zone, Guard, and the project folders stay in this Mac's preferences. The first time a file is edited, the original is kept beside it as `.cavok-bak`. A later clean does not replace that first copy.
+
+Longer notes on each row are in [docs/tool.md](docs/tool.md). The rest of this file is how to run a session.
 
 ## Open it
 
@@ -97,15 +147,6 @@ Open Settings from the Cavok menu in the menu bar.
 - **Show Cavok in the menu bar** hides or shows the icon. Closing the window does not hide it.
 - **Guard** is the same switch as in the panel.
 - **Project folders** are where Cavok looks for a leftover `.claude/settings.json` or `settings.local.json`. On first launch it adds `~/Projects` and `~/Developer` if those folders exist. Your repos on the Desktop are not included until you click **Add Folder…** and choose Desktop.
-
-## What a clear screen still does not cover
-
-- The phone apps. A phone on home Wi-Fi writes that address onto the same account.
-- Which Surfshark server, Kill Switch, or Bypasser option you picked. Cavok only sees the address that comes out.
-- Whether the address is a home connection or a datacenter.
-- Where the account or the card was created.
-
-Longer notes on each row are in [docs/tool.md](docs/tool.md).
 
 ## Build
 
