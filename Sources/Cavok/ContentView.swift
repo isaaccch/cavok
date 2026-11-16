@@ -16,6 +16,14 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             Form {
+                if store.guardOn {
+                    Section {
+                        Text(store.packetDropLine)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
                 ForEach(FixStore.sections) { section in
                     Section(section.title) {
                         ForEach(section.ids, id: \.self) { id in

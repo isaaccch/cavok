@@ -10,6 +10,7 @@
 <key>CFBundleShortVersionString</key><string>0.1</string>
 <key>CFBundleVersion</key><string>__BUILD__</string>
 <key>LSMinimumSystemVersion</key><string>26.0</string>
+<key>NSSystemExtensionUsageDescription</key><string>Cavok drops new connections from Claude and ChatGPT when they would leave on Wi-Fi or Ethernet.</string>
 <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>

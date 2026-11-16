@@ -5,12 +5,17 @@ import SwiftUI
 enum CavokActions {
     static var openMain: (() -> Void)?
     static var check: (() -> Void)?
+    static var disablePacketDrop: (() -> Void)?
 }
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        CavokActions.disablePacketDrop?()
     }
 
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {

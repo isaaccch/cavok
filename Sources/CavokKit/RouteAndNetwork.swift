@@ -167,6 +167,11 @@ public enum ProcessMatch {
         return found
     }
 
+    /// True when this command is one Guard already quits. A mention in vim, grep, man, or git is not.
+    public static func matches(_ command: String) -> Bool {
+        label(for: command) != nil
+    }
+
     static func label(for command: String) -> String? {
         let tokens = command.split(whereSeparator: \.isWhitespace).map(String.init)
         guard let argv0 = tokens.first else { return nil }

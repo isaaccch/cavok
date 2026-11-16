@@ -56,10 +56,10 @@ Longer notes on each row are in [docs/tool.md](docs/tool.md). The rest of this f
 
 ## Open it
 
-The app is installed at `~/Applications/Cavok.app`.
+The app is installed at `/Applications/Cavok.app`.
 
 ```sh
-open ~/Applications/Cavok.app
+open /Applications/Cavok.app
 ```
 
 You get a window and a menu-bar icon. Closing the window leaves the icon in place. **Quit** in the menu-bar panel quits Cavok.
@@ -157,46 +157,61 @@ swift test
 ./build.sh --open
 ```
 
-`./build.sh` installs `~/Applications/Cavok.app`. `--open` quits the running copy and opens the new one.
+`./build.sh` installs `/Applications/Cavok.app`. `--open` quits the running copy and opens the new one. If the content-filter entitlement is not on the signing identity, the menu-bar app still installs and the packet drop stays off.
 
-## Future update: packet drop on the street door
+## Packet drop on the street door
 
-This section is the plan. It is not built. Everything above describes Cavok as it runs today. Today Guard quits Claude, ChatGPT, `claude`, and `codex` after it notices the route has left the tunnel. A new connection can already be on its way out Wi-Fi or Ethernet before that quit runs. This update closes that gap. It does not change what a green check means, and it does not make the setup compliant.
+Guard arms this drop when it is on. If the filter is not actually enabled, **Open Claude** and **Open ChatGPT** stay off. A green check still does not mean the account is safe, and this drop does not make the setup compliant.
 
-Picture the Mac as a building with two doors. The tunnel door is Surfshark. The street door is Wi-Fi or Ethernet. Guard today is a person who sees Claude heading for the street and runs over to pull them back. One step can already be on the pavement. That step is the packet. The update puts a turnstile on the street door. The turnstile reads the same badges Guard already uses. Those badges do not open the street door. Safari, Mail, and Surfshark keep both doors, because Surfshark has to be able to reconnect.
+Today, a path change does not kill inside the path callback. Guard runs `route -n get` and `networksetup` on the side, then comes back to the main thread, then sends `SIGKILL`. The first path event is ignored. A change that is still a tunnel waits 2.5 seconds and runs a full check. Electron can open a new connection before that `SIGKILL` lands, and the kernel has already pointed the new connect at Wi-Fi or Ethernet. This update closes that gap for the processes below. It does not change what a green check means, and it does not make the setup compliant.
+
+Picture the Mac as a building with two doors. The tunnel door is Surfshark. The street door is Wi-Fi or Ethernet. Guard today is a person who sees Claude heading for the street and runs over to pull them back. One step can already be on the pavement. That step is the packet. The update puts a turnstile on the street door. Safari, Mail, and Surfshark keep both doors, because Surfshark has to be able to reconnect.
+
+Any `utun` still counts as a tunnel, including macOS's own `utun` interfaces and another VPN. The traces still have to agree on an allowed country before either open button enables. A tunnel that is not Surfshark, with both exits in an allowed country, is still a pass. This update does not learn which tunnel is Surfshark.
 
 ### What gets dropped
 
-The turnstile only looks at the processes Guard already quits:
+The turnstile looks at the processes Guard already quits, and at their descendants:
 
 | Process | How it is recognized |
 |---|---|
-| Claude.app | The path contains `Claude.app`. |
-| ChatGPT.app | The path contains `ChatGPT.app`. |
+| Claude.app | The path contains `Claude.app`. Electron helpers inside that bundle match on the same path. |
+| ChatGPT.app | The path contains `ChatGPT.app`. Electron helpers inside that bundle match on the same path. |
 | `claude`, `claude-code` | The program name. |
 | `codex`, including `codex-aarch64-…` | The program name. |
-| `node` | Only when the script path is the Claude Code CLI, including `@anthropic-ai/claude-code/` `cli.js`. |
+| `node` | Only when the script path is the Claude Code CLI, including `@anthropic-ai/claude-code/` `cli.js`. The audit token does not carry the script. The extension reads the arguments for that pid once and remembers them. |
+| A descendant of `claude`, `claude-code`, or `codex` | The parent chain. `curl`, `git`, `python3`, and an MCP server binary match when an ancestor matches a row above. The walk stops at pid 1. An ancestor is included only when it matches on its own. |
 
-A mention of those names in vim, grep, man, or git does not match. `node` running any other script does not match. Chrome, Safari, and every other app do not match.
+A mention of those names in vim, grep, man, or git does not match. `node` running any other script does not match. Chrome, Safari, and every other app do not match. `SIGKILL` of the parent does not take a child with it, which is why the child is matched on its own.
 
-For a process that does match, each new TCP or UDP socket is judged before the packet is sent. The judgment is a route lookup for that destination, the same kind of lookup Cavok already uses: `route -n get`.
+The match stores the process start time with the pid. A pid gets reused. The new process does not keep the old rule unless it matches on its own.
+
+For a process that does match, each new TCP or UDP socket is judged before the packet is sent. The judgment is an in-process routing-socket query for that destination: `RTM_GET`, then the interface name. It returns the same answer as `route -n get` for that address. The extension does not spawn `/sbin/route` on each socket. It does not ask the system default path. The default route can still name `en0` while traffic to `1.1.1.1` uses `utun`, which is why today's check looks up `1.1.1.1`.
+
+The function that answers "tunnel, loopback, physical, or unknown" lives in CavokKit and is unit-tested the same way the route parser is. If the extension sandbox refuses the routing socket, the filter does not arm.
 
 | What the route says | What the turnstile does |
 |---|---|
-| Tunnel: `utun`, `ipsec`, `ppp`, or `wg` | Allow. |
+| Tunnel: `utun`, `ipsec`, `ppp`, or `wg` | Allow for now. That allow is not final. |
 | Loopback, this Mac only | Allow. |
 | Physical: `en*`, `bridge*`, `ap*`, or a hardware port from `networksetup` | Drop. Nothing from that socket is transmitted. |
 | The route cannot be read | Drop. An unknown door is treated as the street door. |
 
-The filter does not read the payload. It does not log the bytes. It looks at the process path, the arguments (so it can see `node`'s script), and the interface name.
+A final allow sticks to that socket. Later packets on it are not judged again. A connected TCP socket is bound to the address it had on the tunnel. When that interface disappears, those sends fail. They do not move onto Wi-Fi. The TCP leak is the new connect Electron opens after that failure, and that new connect is judged from scratch.
 
-DNS from those same apps is included. A lookup that would leave on Wi-Fi or Ethernet is dropped with the rest. If the only resolver those apps can reach is on the physical interface, they fail to resolve. That is stricter than today's DNS row, which warns and does not quit anything. The DNS row itself stays a warning for the rest of the Mac.
+UDP is weaker. A socket that was allowed while the tunnel was up can send again after the route changes, with no new socket event. QUIC on that kind of socket is the case. So a tunnel allow lasts only while the route for the public destination stays a tunnel. When that route leaves the tunnel, the extension force-quits the protected set, including descendants. The menu-bar quit still runs as well. The extension's quit is the one that does not wait for the menu-bar hop.
 
-The existing quit stays. A physical route, a bad exit, a split, a pin miss, a leftover proxy or relay, or a real IPv6 leak still quits Claude, ChatGPT, `claude`, and `codex`. Sleep still quits them normally, while the tunnel is up. A timeout, the clock, the locale, and a curl challenge still quit nothing. The turnstile is the part that acts before the quit, on the socket, for those apps only.
+The filter does not read the payload. It does not log the bytes. It looks at the process path, the arguments, the parent chain, the start time, and the interface name from the in-process lookup.
+
+A system DNS lookup is not one of those sockets. `getaddrinfo` asks `mDNSResponder`, and `mDNSResponder` sends the packet. The filter sees `mDNSResponder`, so this update does not claim to drop system lookups per app, and it does not add a DNS proxy. A lookup that the app sends on its own socket still goes through the socket rule. That includes Node's own resolver and Chromium's own resolver or DNS-over-HTTPS. The DNS row in the window stays a warning for the rest of the Mac.
+
+The existing quit stays, and the signals stay as they are today. A physical route, a bad exit, a split, a pin miss, a leftover proxy or relay, or a real IPv6 leak still force-quits Claude, ChatGPT, `claude`, and `codex`. Sleep still quits them normally, while the tunnel is up. A timeout, the clock, the locale, and a curl challenge still quit nothing.
 
 ### Why this shape
 
-A list of blocked IP addresses on the street door does not do this job. Cloudflare can answer with a different address after the tunnel has fallen back to `en0`. The new address is not on the list, and the packet still leaves. A packet filter rule also cannot name Claude.app or the `node` script. The main rules on this Mac, in `/etc/pf.conf`, only evaluate anchors under `com.apple/*`. The update does not add a host-wide block, a GID sandbox, or an anchor that drops every program on Wi-Fi. Surfshark's own traffic has to keep using the physical interface so the tunnel can come back.
+A list of blocked IP addresses on the street door does not do this job. Cloudflare can answer with a different address after the tunnel has fallen back to `en0`. The new address is not on the list, and the packet still leaves. A packet filter rule also cannot name Claude.app, the `node` script, or a child `curl`. The socket filter's flow object has the remote endpoint and the audit token, and the endpoint can be empty when the socket is new. It does not carry an interface name, so the interface has to come from the routing-socket query above.
+
+The main rules on this Mac, in `/etc/pf.conf`, only evaluate anchors under `com.apple/*`. The update does not add a host-wide block, a GID sandbox, or an anchor that drops every program on Wi-Fi. Surfshark's own traffic has to keep using the physical interface so the tunnel can come back. If the filter cannot arm, that is the end of this update. A host-wide block is not the fallback.
 
 The update also leaves these alone:
 
@@ -205,16 +220,17 @@ The update also leaves these alone:
 - Browser fingerprints, cookies, and a separate browser.
 - ASN lookups, IP reputation, and any service that would be sent the exit address.
 - Account country, card country, and login. Cavok still never logs in.
+- Which `utun` is Surfshark. The traces remain the exit check.
 
 ### How it turns on
 
-The turnstile is a content-filter system extension, `CavokGuardFilter`, embedded in `Cavok.app`. On each new socket it asks one function in CavokKit: is this process one Guard already protects, and is the route a tunnel, loopback, physical, or unknown. The function returns allow or drop.
+The turnstile is a content-filter system extension, `CavokGuardFilter`, embedded in `Cavok.app`. On each new socket it asks one function in CavokKit: does this process, or an ancestor, match the table above, and is the in-process route a tunnel, loopback, physical, or unknown.
 
 Arming happens when Guard is on, before a drop is noticed. Turning Guard off disables the filter. Quitting Cavok disables the filter. The first time it is enabled, macOS asks for approval in System Settings. That approval is once.
 
-The app and the extension need the Apple Development certificate `build.sh` already looks for, and a profile for `com.isaaccheung.cavok` that carries the network-extension and system-extension entitlements. An ad-hoc signature cannot activate a system extension. If the certificate or the entitlement is missing, the menu-bar app still installs, the filter stays off, and the window says the packet drop is not armed. There is no substitute that blocks the whole Mac.
+The app and the extension need a paid Apple Developer Program membership, and a profile for `com.isaaccheung.cavok` that carries the content-filter entitlement (`content-filter-provider`). A free Personal Team profile cannot carry it. An ad-hoc signature cannot activate a system extension. SIP stays on. This update does not turn SIP off, and it does not use system-extension developer mode as the way to run. If the membership or the entitlement is missing, the menu-bar app still installs, the filter stays off, and the window says the packet drop is not armed. There is no substitute that blocks the whole Mac.
 
-Apple activates a system extension from an app in `/Applications`. Today's build installs to `~/Applications/Cavok.app`. When this update ships, `./build.sh` installs `/Applications/Cavok.app` instead. That copy asks for an administrator password, the same way the IPv6 and system-proxy buttons already do.
+Apple activates a system extension from an app in `/Applications`. `./build.sh` installs `/Applications/Cavok.app`. That copy asks for an administrator password when this user cannot write `/Applications` directly, the same way the IPv6 and system-proxy buttons already do.
 
 While Guard is on and the filter is not actually enabled, **Open Claude** and **Open ChatGPT** stay off. A good exit reading with no armed drop is still an open street door. The help under the buttons says the packet drop is not armed.
 
@@ -231,12 +247,15 @@ The Guard control in the menu bar and in the window gains one line:
 
 | Case | Result |
 |---|---|
-| Protected process, route is a tunnel | Allow. |
+| Protected process, route for that destination is a tunnel | Allow for this lookup. The allow is not final once the route leaves the tunnel. |
 | Protected process, route is `en0` or another physical interface | Drop. |
 | Protected process, route cannot be read | Drop. |
 | Protected process, destination is loopback | Allow. |
 | `node` running the Claude Code `cli.js` | Drop when the route is physical. |
 | `node` running any other script | Allow. |
-| vim, grep, man, or git mentioning claude | Allow. |
+| `curl`, `git`, or `python3` whose ancestor is `claude`, `claude-code`, or `codex` | Drop when the route is physical. |
+| Same pid later, with a different start time, and no match of its own | Allow. |
+| vim, grep, man, or git mentioning claude, with no matching ancestor | Allow. |
+| A system lookup sent by `mDNSResponder` | Outside this decision. Not a per-app drop. |
 
-The live check, after install, is on this Mac. Approve the extension. Confirm the Guard line says the packet drop is on. Turn the tunnel off. Safari should still load an ordinary page. The filter log should show a drop for a protected process. That check does not open a signed-in Claude or ChatGPT session. If the extension will not activate, the work stops on the signing or path error. A host-wide packet-filter block is not the fallback.
+The live check, after install, is on this Mac. Approve the extension. Confirm the Guard line says the packet drop is on. Turn the tunnel off. Safari should still load an ordinary page. The filter log should show a drop for a protected process, including a `curl` started under `claude` or `codex`. That check does not open a signed-in Claude or ChatGPT session. If the extension will not activate, or the sandbox refuses the routing socket, the work stops on that error. A host-wide packet-filter block is not the fallback.

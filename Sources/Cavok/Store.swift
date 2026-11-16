@@ -68,11 +68,13 @@ final class FixStore {
     var note = ""
     var busy = false
     var guardOn: Bool
+    var packetDropArmed = false
     var workspacePaths: [String]
     let preview: Bool
     private var didStart = false
     private var report = MachineReport()
     private var watchdog: Watchdog?
+    private var dropControl: PacketDropControl?
     @ObservationIgnored private var inspectGeneration = 0
 
     var blockingReason: String? {
@@ -99,11 +101,21 @@ final class FixStore {
 
     var canOpen: Bool {
         if preview { return true }
+        if guardOn && !packetDropArmed { return false }
         return SessionGate.canOpen(facts())
     }
 
+    var packetDropLine: String {
+        packetDropArmed
+            ? "Packet drop is on. Wi-Fi and Ethernet stay closed for Claude and ChatGPT."
+            : "Packet drop is not armed. Open stays off."
+    }
+
     var openHelp: String {
-        canOpen
+        if !preview && guardOn && !packetDropArmed {
+            return packetDropLine
+        }
+        return canOpen
             ? "Open while Claude and ChatGPT share this exit."
             : "Stays off until both exits match an allowed country on the tunnel, with no leak, leftover, or socket on Wi-Fi or Ethernet."
     }
@@ -122,6 +134,7 @@ final class FixStore {
         guardOn = on
         UserDefaults.standard.set(on, forKey: Self.guardKey)
         watchdog?.refresh()
+        dropControl?.setEnabled(on)
     }
 
     func pickRoot() {
@@ -154,6 +167,17 @@ final class FixStore {
             let dog = Watchdog(store: self)
             watchdog = dog
             dog.start()
+        }
+        if dropControl == nil {
+            let control = PacketDropControl()
+            control.onChange = { [weak self] armed in
+                self?.packetDropArmed = armed
+            }
+            dropControl = control
+            CavokActions.disablePacketDrop = { [weak control] in
+                control?.setEnabled(false)
+            }
+            if guardOn { control.setEnabled(true) }
         }
         inspect()
     }

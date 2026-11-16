@@ -1,0 +1,93 @@
+#include "cavok_sys.h"
+
+#include <bsm/libbsm.h>
+#include <libproc.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/sysctl.h>
+
+int cavok_proc_count(void) {
+    int bytes = proc_listallpids(NULL, 0);
+    if (bytes <= 0) return 0;
+    return bytes / (int)sizeof(pid_t);
+}
+
+int cavok_proc_pids(int32_t *pids, int capacity) {
+    if (pids == NULL || capacity <= 0) return 0;
+    int count = cavok_proc_count();
+    if (count <= 0) return 0;
+    pid_t *listed = calloc((size_t)count, sizeof(pid_t));
+    if (listed == NULL) return 0;
+    int bytes = proc_listallpids(listed, count * (int)sizeof(pid_t));
+    int got = bytes > 0 ? bytes / (int)sizeof(pid_t) : 0;
+    if (got > capacity) got = capacity;
+    for (int i = 0; i < got; i++) pids[i] = (int32_t)listed[i];
+    free(listed);
+    return got;
+}
+
+static void cavok_copy(char *destination, int destination_len, const char *source) {
+    if (destination_len <= 0) return;
+    if (source == NULL) {
+        destination[0] = '\0';
+        return;
+    }
+    strlcpy(destination, source, (size_t)destination_len);
+}
+
+static void cavok_append(char *destination, int destination_len, const char *piece) {
+    if (destination_len <= 0 || piece == NULL || piece[0] == '\0') return;
+    size_t used = strlen(destination);
+    if ((int)used >= destination_len - 1) return;
+    if (used > 0) strlcat(destination, " ", (size_t)destination_len);
+    strlcat(destination, piece, (size_t)destination_len);
+}
+
+/// `KERN_PROCARGS2` is argc, the executable path, padding NULs, then the argument strings.
+static void cavok_arguments(int32_t pid, char *command, int command_len) {
+    int mib[3] = {CTL_KERN, KERN_PROCARGS2, pid};
+    size_t size = 0;
+    if (sysctl(mib, 3, NULL, &size, NULL, 0) != 0 || size < sizeof(int)) return;
+    char *buffer = calloc(1, size + 1);
+    if (buffer == NULL) return;
+    if (sysctl(mib, 3, buffer, &size, NULL, 0) != 0) {
+        free(buffer);
+        return;
+    }
+    int argc = 0;
+    memcpy(&argc, buffer, sizeof(int));
+    char *cursor = buffer + sizeof(int);
+    char *end = buffer + size;
+    while (cursor < end && *cursor != '\0') cursor++;
+    while (cursor < end && *cursor == '\0') cursor++;
+    command[0] = '\0';
+    for (int i = 0; i < argc && cursor < end; i++) {
+        cavok_append(command, command_len, cursor);
+        cursor += strlen(cursor) + 1;
+    }
+    free(buffer);
+}
+
+int cavok_proc_read(int32_t pid, int32_t *ppid, uint64_t *start_sec, uint64_t *start_usec, char *command, int command_len) {
+    if (ppid == NULL || start_sec == NULL || start_usec == NULL || command == NULL || command_len < 2) return -1;
+    struct proc_bsdinfo info;
+    int got = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, (int)sizeof(info));
+    if (got != (int)sizeof(info)) return -1;
+    *ppid = (int32_t)info.pbi_ppid;
+    *start_sec = info.pbi_start_tvsec;
+    *start_usec = info.pbi_start_tvusec;
+    command[0] = '\0';
+    cavok_arguments(pid, command, command_len);
+    if (command[0] == '\0') {
+        char path[PROC_PIDPATHINFO_MAXSIZE];
+        if (proc_pidpath(pid, path, sizeof(path)) > 0) cavok_copy(command, command_len, path);
+    }
+    return command[0] == '\0' ? -1 : 0;
+}
+
+int32_t cavok_pid_from_audit_token(const void *bytes, int length) {
+    if (bytes == NULL || length < (int)sizeof(audit_token_t)) return -1;
+    audit_token_t token;
+    memcpy(&token, bytes, sizeof(token));
+    return (int32_t)audit_token_to_pid(token);
+}

@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Builds Cavok and installs it to ~/Applications/Cavok.app.
+# Builds Cavok and installs it to /Applications/Cavok.app.
 # Usage: ./build.sh            release build, install
 #        ./build.sh --debug    debug build, install
 #        ./build.sh --open     install, then quit the running copy and open the new one
@@ -28,7 +28,8 @@ if [[ $build_status -ne 0 ]]; then
   exit "$build_status"
 fi
 bin="$scratch/$config/$name"
-[[ -x "$bin" ]] || { echo "build failed"; exit 1; }
+filter="$scratch/$config/CavokGuardFilter"
+[[ -x "$bin" && -x "$filter" ]] || { echo "build failed"; exit 1; }
 stale=$(find "$here/Sources" -name '*.swift' -newer "$bin" | head -1)
 if [[ -n "$stale" ]]; then
   echo "build failed: binary is older than $stale"
@@ -36,12 +37,12 @@ if [[ -n "$stale" ]]; then
   exit 1
 fi
 
-app="$HOME/Applications/$name.app"
-mkdir -p "$HOME/Applications"
-rm -rf "$app"
+stage=$(mktemp -d "${TMPDIR:-/tmp}/cavok-app.XXXXXX")
+app="$stage/$name.app"
+build_id=$(date +%Y%m%d%H%M)
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin" "$app/Contents/MacOS/$name"
-sed -e "s/__BUILD__/$(date +%Y%m%d%H%M)/" "$here/Info.plist.in" > "$app/Contents/Info.plist"
+sed -e "s/__BUILD__/$build_id/" "$here/Info.plist.in" > "$app/Contents/Info.plist"
 if [[ -f "$here/Icon/AppIcon.icon/Assets/mark.png" ]]; then
   icns="$here/Resources/AppIcon.icns"
   if [[ ! -f "$icns" || "$here/Icon/AppIcon.icon/Assets/mark.png" -nt "$icns" ]]; then
@@ -49,12 +50,53 @@ if [[ -f "$here/Icon/AppIcon.icon/Assets/mark.png" ]]; then
   fi
   cp -X "$icns" "$app/Contents/Resources/"
 fi
+
+ext="$app/Contents/Library/SystemExtensions/com.isaaccheung.cavok.guard.systemextension"
+mkdir -p "$ext/Contents/MacOS"
+cp "$filter" "$ext/Contents/MacOS/CavokGuardFilter"
+sed -e "s/__BUILD__/$build_id/" "$here/Info-filter.plist.in" > "$ext/Contents/Info.plist"
 xattr -cr "$app"
-codesign --force --sign "$identity" "$app" 2>&1 | grep -v "replacing existing signature" || true
-echo "installed $app (signed: ${identity})"
+
+filter_signed=0
+if [[ "$identity" != "-" ]]; then
+  set +e
+  codesign --force --sign "$identity" --entitlements "$here/CavokGuardFilter.entitlements" "$ext" >/tmp/cavok-sign-filter.txt 2>&1
+  filter_status=$?
+  codesign --force --sign "$identity" --entitlements "$here/Cavok.entitlements" "$app" >/tmp/cavok-sign-app.txt 2>&1
+  app_status=$?
+  set -e
+  if [[ $filter_status -eq 0 && $app_status -eq 0 ]]; then
+    filter_signed=1
+  fi
+fi
+if [[ $filter_signed -eq 0 ]]; then
+  rm -rf "$app/Contents/Library"
+  codesign --force --sign "$identity" "$app" 2>&1 | grep -v "replacing existing signature" || true
+  echo "packet drop is not signed. Guard will show that it is not armed."
+else
+  echo "packet drop signed with $identity"
+fi
+
+dest="/Applications/$name.app"
+installed=0
+if mkdir -p /Applications && rm -rf "$dest" && cp -R "$app" "$dest"; then
+  installed=1
+else
+  quoted_dest=$(printf '%q' "$dest")
+  quoted_app=$(printf '%q' "$app")
+  set +e
+  osascript -e "do shell script \"rm -rf $quoted_dest && cp -R $quoted_app $quoted_dest\" with administrator privileges"
+  copy_status=$?
+  set -e
+  [[ $copy_status -eq 0 ]] && installed=1
+fi
+rm -rf "$stage"
+[[ $installed -eq 1 ]] || { echo "install failed"; exit 1; }
+rm -rf "$HOME/Applications/$name.app"
+echo "installed $dest (signed: ${identity})"
 
 if [[ " $* " == *" --open "* ]]; then
   osascript -e "quit app \"$name\"" 2>/dev/null || true
   sleep 0.5
-  open "$app"
+  open "$dest"
 fi
