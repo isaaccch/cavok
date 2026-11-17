@@ -20,6 +20,13 @@ public struct ProcSnap: Equatable, Sendable {
 public enum PacketDropNote {
     public static let ready = "com.isaaccheung.cavok.packet-drop-ready"
     public static let blocked = "com.isaaccheung.cavok.packet-drop-blocked"
+    public static let check = "com.isaaccheung.cavok.packet-drop-check"
+}
+
+public enum ProtectionState: Equatable, Sendable {
+    case protected
+    case unprotected
+    case unresolved
 }
 
 public enum PacketDrop {
@@ -91,6 +98,31 @@ public enum PacketDrop {
         }
         return false
     }
+
+    /// One pid and its parents, without a full process table.
+    /// A hop that cannot be read is unresolved and is not cached.
+    /// A walk that reaches pid 1 is unprotected and is not cached.
+    /// Only a protected hit is stored, keyed by pid and start time.
+    public static func protection(
+        pid: Int32,
+        snap: (Int32) -> ProcSnap?,
+        cache: ProtectionCache
+    ) -> ProtectionState {
+        var current = pid
+        var seen = Set<Int32>()
+        var chain: [(pid: Int32, startSec: UInt64, startUsec: UInt64)] = []
+        while current > 1, seen.insert(current).inserted {
+            guard let info = snap(current) else { return .unresolved }
+            chain.append((info.pid, info.startSec, info.startUsec))
+            if cache.protectedHit(pid: info.pid, startSec: info.startSec, startUsec: info.startUsec)
+                || ProcessMatch.matches(info.command) {
+                cache.storeProtected(chain)
+                return .protected
+            }
+            current = info.ppid
+        }
+        return .unprotected
+    }
 }
 
 public struct ProtectedStamp: Equatable, Sendable {
@@ -124,5 +156,25 @@ public final class ProtectionCache: @unchecked Sendable {
         let answer = PacketDrop.isProtected(pid: pid, snaps: snaps)
         byPid[pid] = ProtectedStamp(pid: pid, startSec: snap.startSec, startUsec: snap.startUsec, protected: answer)
         return answer
+    }
+
+    func protectedHit(pid: Int32, startSec: UInt64, startUsec: UInt64) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let hit = byPid[pid], hit.protected else { return false }
+        return hit.startSec == startSec && hit.startUsec == startUsec
+    }
+
+    func storeProtected(_ chain: [(pid: Int32, startSec: UInt64, startUsec: UInt64)]) {
+        lock.lock()
+        defer { lock.unlock() }
+        for item in chain {
+            byPid[item.pid] = ProtectedStamp(
+                pid: item.pid,
+                startSec: item.startSec,
+                startUsec: item.startUsec,
+                protected: true
+            )
+        }
     }
 }

@@ -57,6 +57,37 @@ private func snap(_ pid: Int32, _ ppid: Int32, _ command: String, start: UInt64 
     #expect(!PacketDrop.isProtected(pid: 31, snaps: snaps))
     #expect(!PacketDrop.isProtected(pid: 40, snaps: snaps))
     #expect(PacketDrop.isProtected(pid: 51, snaps: snaps))
+    let cache = ProtectionCache()
+    let lookup: (Int32) -> ProcSnap? = { snaps[$0] }
+    #expect(PacketDrop.protection(pid: 13, snap: lookup, cache: cache) == .protected)
+    #expect(PacketDrop.protection(pid: 12, snap: lookup, cache: cache) == .protected)
+    #expect(PacketDrop.protection(pid: 20, snap: lookup, cache: cache) == .unprotected)
+    #expect(PacketDrop.protection(pid: 21, snap: lookup, cache: cache) == .unprotected)
+    #expect(PacketDrop.protection(pid: 31, snap: lookup, cache: cache) == .unprotected)
+    #expect(PacketDrop.protection(pid: 40, snap: lookup, cache: cache) == .unprotected)
+    #expect(PacketDrop.protection(pid: 51, snap: lookup, cache: cache) == .protected)
+    #expect(PacketDrop.protection(pid: 1, snap: lookup, cache: cache) == .unprotected)
+}
+
+@Test func anUnreadAncestorIsNotCached() {
+    let cache = ProtectionCache()
+    var snaps: [Int32: ProcSnap] = [
+        12: snap(12, 11, "/usr/bin/curl"),
+        10: snap(10, 1, "/usr/local/bin/claude"),
+    ]
+    let lookup: (Int32) -> ProcSnap? = { snaps[$0] }
+    #expect(PacketDrop.protection(pid: 12, snap: lookup, cache: cache) == .unresolved)
+    snaps[11] = snap(11, 10, "/bin/zsh")
+    #expect(PacketDrop.protection(pid: 12, snap: lookup, cache: cache) == .protected)
+}
+
+@Test func aProtectedStartTimeDoesNotCoverTheNextProcess() {
+    let cache = ProtectionCache()
+    let claude = snap(7, 1, "/usr/local/bin/claude", start: 1)
+    let reused = snap(7, 1, "vim claude", start: 9)
+    #expect(PacketDrop.protection(pid: 7, snap: { $0 == 7 ? claude : nil }, cache: cache) == .protected)
+    #expect(PacketDrop.protection(pid: 7, snap: { $0 == 7 ? reused : nil }, cache: cache) == .unprotected)
+    #expect(PacketDrop.protection(pid: 7, snap: { $0 == 7 ? claude : nil }, cache: cache) == .protected)
 }
 
 @Test func aReusedPidDoesNotKeepTheOldRule() {

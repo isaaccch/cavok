@@ -649,7 +649,7 @@ final class FixStore {
     private static func settings(_ report: MachineReport) -> FixRow {
         let flagged = report.configHits.filter { !$0.keys.isEmpty }
         if flagged.isEmpty, let error = report.configHits.compactMap(\.error).first {
-            return FixRow(id: .settings, title: "Claude configs", detail: error, tone: .idle, button: nil, action: nil)
+            return FixRow(id: .settings, title: "Claude configs", detail: error, tone: .warn, button: nil, action: nil)
         }
         if flagged.isEmpty {
             return FixRow(id: .settings, title: "Claude configs", detail: "No relay or proxy keys in Claude settings, ~/.claude.json, or the project folders.", tone: .ok, button: nil, action: nil)
@@ -660,7 +660,7 @@ final class FixStore {
 
     private static func codex(_ report: MachineReport) -> FixRow {
         if let error = report.codexError {
-            return FixRow(id: .codex, title: "Codex config", detail: error, tone: .idle, button: nil, action: nil)
+            return FixRow(id: .codex, title: "Codex config", detail: error, tone: .warn, button: nil, action: nil)
         }
         if report.codexMissing {
             return FixRow(id: .codex, title: "Codex config", detail: "No ~/.codex/config.toml. Nothing to clean.", tone: .ok, button: nil, action: nil)
@@ -680,7 +680,7 @@ final class FixStore {
 
     private static func sockets(_ report: MachineReport) -> FixRow {
         if report.socketLeaks.isEmpty {
-            return FixRow(id: .sockets, title: "Open app sockets", detail: "No Claude, ChatGPT, or Codex connection is using a Wi-Fi or Ethernet address.", tone: .ok, button: nil, action: nil)
+            return FixRow(id: .sockets, title: "Open app sockets", detail: "No Claude, ChatGPT, Codex, or child-process connection is using a Wi-Fi or Ethernet address.", tone: .ok, button: nil, action: nil)
         }
         let parts = report.socketLeaks.map { "\($0.command) \($0.localAddress)" }
         return FixRow(id: .sockets, title: "Open app sockets", detail: parts.joined(separator: ", ") + ".", tone: .warn, button: "Quit apps", action: .quitApps)
@@ -809,7 +809,7 @@ final class FixStore {
         .settings: FixRow(id: .settings, title: "Claude configs", detail: "~/.claude/settings.json has ANTHROPIC_BASE_URL.", tone: .warn, button: "Remove", action: .cleanSettings),
         .codex: FixRow(id: .codex, title: "Codex config", detail: "No custom base URL in ~/.codex/config.toml.", tone: .ok, button: nil, action: nil),
         .proxy: FixRow(id: .proxy, title: "System proxy", detail: "HTTPEnable is on. Claude and ChatGPT follow the macOS proxy.", tone: .warn, button: "Turn off", action: .disableProxy),
-        .sockets: FixRow(id: .sockets, title: "Open app sockets", detail: "No Claude, ChatGPT, or Codex connection is using a Wi-Fi or Ethernet address.", tone: .ok, button: nil, action: nil),
+        .sockets: FixRow(id: .sockets, title: "Open app sockets", detail: "No Claude, ChatGPT, Codex, or child-process connection is using a Wi-Fi or Ethernet address.", tone: .ok, button: nil, action: nil),
         .ipv6: FixRow(id: .ipv6, title: "IPv6", detail: "claude.ai and chatgpt.com did not answer on IPv6.", tone: .idle, button: nil, action: nil),
         .dns: FixRow(id: .dns, title: "DNS", detail: "Resolvers in use: 162.252.172.57, 149.154.159.92. A resolver is on en0 while the IPv4 route is a tunnel. Flush only clears the cache.", tone: .warn, button: "Flush", action: .flushDNS),
         .zone: FixRow(id: .zone, title: "Time zone and locale", detail: "This Mac is on Asia/Hong_Kong. An exit is JP.", tone: .warn, button: "Set to Tokyo", action: .setTokyo),

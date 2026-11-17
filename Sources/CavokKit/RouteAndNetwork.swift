@@ -172,6 +172,14 @@ public enum ProcessMatch {
         label(for: command) != nil
     }
 
+    /// The quit note for a matched command, or the program name of a child.
+    public static func quitName(for command: String) -> String {
+        if let label = label(for: command) { return label }
+        let tokens = command.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard let argv0 = tokens.first else { return "process" }
+        return baseName(argv0)
+    }
+
     static func label(for command: String) -> String? {
         let tokens = command.split(whereSeparator: \.isWhitespace).map(String.init)
         guard let argv0 = tokens.first else { return nil }

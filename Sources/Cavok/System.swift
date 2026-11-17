@@ -86,28 +86,25 @@ enum System {
         return run("/sbin/route", args)
     }
 
-    nonisolated static func protectedProcesses() -> [ProtectedProcess] {
-        let listed = run("/bin/ps", ["-axww", "-o", "pid=,args="])
-        let selfPid = ProcessInfo.processInfo.processIdentifier
-        return ProcessMatch.protected(in: listed.stdout).filter { $0.pid != selfPid }
-    }
-
-    /// Quits Claude, ChatGPT, claude, and codex. `force` is SIGKILL. Sleep uses a normal quit so the tunnel is still up.
+    /// Quits Claude, ChatGPT, claude, codex, and a child of those processes.
+    /// The set is taken before the first signal. `force` is SIGKILL. Sleep uses a normal quit.
     @discardableResult
     nonisolated static func terminateProtected(force: Bool) -> [String] {
-        let found = protectedProcesses()
+        let selfPid = ProcessInfo.processInfo.processIdentifier
+        let snaps = ProcessTable.allSnaps()
+        let protected = snaps.values.filter { $0.pid != selfPid && PacketDrop.isProtected(pid: $0.pid, snaps: snaps) }
         let apps = NSWorkspace.shared.runningApplications.filter { app in
             let path = app.bundleURL?.path ?? ""
             return path.contains("Claude.app") || path.contains("ChatGPT.app")
         }
+        let signal: Int32 = force ? SIGKILL : SIGTERM
+        for snap in protected {
+            kill(snap.pid, signal)
+        }
         for app in apps {
             if force { app.forceTerminate() } else { app.terminate() }
         }
-        let signal: Int32 = force ? SIGKILL : SIGTERM
-        for process in found {
-            kill(process.pid, signal)
-        }
-        var labels = found.map(\.label)
+        var labels = protected.map { ProcessMatch.quitName(for: $0.command) }
         if apps.contains(where: { $0.bundleURL?.path.contains("Claude.app") == true }), !labels.contains("Claude") {
             labels.append("Claude")
         }
@@ -117,13 +114,15 @@ enum System {
         return Array(Set(labels)).sorted()
     }
 
-    nonisolated static func socketLeaks(for processes: [ProtectedProcess]) -> [SocketLeak] {
-        guard !processes.isEmpty else { return [] }
+    nonisolated static func socketLeaks() -> [SocketLeak] {
+        let snaps = ProcessTable.allSnaps()
+        let pids = snaps.keys.filter { PacketDrop.isProtected(pid: $0, snaps: snaps) }.sorted()
+        guard !pids.isEmpty else { return [] }
         let ports = run("/usr/sbin/networksetup", ["-listallhardwareports"])
         let hardware = RouteParse.hardwareDevices(in: ports.stdout)
         let interfaces = run("/sbin/ifconfig", ["-a"])
         let physical = IfconfigParse.addresses(in: interfaces.stdout, hardware: hardware)
-        let pidList = processes.map { String($0.pid) }.joined(separator: ",")
+        let pidList = pids.map(String.init).joined(separator: ",")
         let listed = run("/usr/sbin/lsof", ["-a", "-p", pidList, "-i", "-n", "-P", "-F", "pcn"])
         return SocketAudit.leaks(in: listed.stdout, physicalIPs: physical)
     }
@@ -196,8 +195,10 @@ enum System {
             try script.write(to: url, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
         } catch {
+            try? FileManager.default.removeItem(at: url)
             return Exec(stderr: error.localizedDescription, code: 1)
         }
+        defer { try? FileManager.default.removeItem(at: url) }
         let apple = "do shell script \"/bin/bash '\(url.path)'\" with administrator privileges"
         return run("/usr/bin/osascript", ["-e", apple])
     }
@@ -242,6 +243,15 @@ enum FileBackup {
     }
 }
 
+enum FileReplace {
+    /// Resolves a symlink, keeps the first backup beside that file, then writes it.
+    nonisolated static func atomic(_ data: Data, to url: URL) throws {
+        let target = url.resolvingSymlinksInPath()
+        try FileBackup.copyOnce(target)
+        try data.write(to: target, options: .atomic)
+    }
+}
+
 enum HomeFiles {
     nonisolated static func scan(_ home: URL) -> [ShellHit] {
         ShellCleaner.fileNames.flatMap { name in
@@ -258,8 +268,7 @@ enum HomeFiles {
             guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
             let edit = ShellCleaner.commenting(text, date: date)
             guard !edit.removed.isEmpty else { continue }
-            try FileBackup.copyOnce(url)
-            try Data(edit.text.utf8).write(to: url, options: .atomic)
+            try FileReplace.atomic(Data(edit.text.utf8), to: url)
             let unique = Array(Set(edit.removed)).sorted().joined(separator: ", ")
             notes.append("\(name) (\(unique))")
         }
@@ -271,8 +280,7 @@ enum HomeFiles {
         let data = try Data(contentsOf: url)
         let edit = try SettingsCleaner.cleaning(data)
         guard let written = edit.data else { return "" }
-        try FileBackup.copyOnce(url)
-        try written.write(to: url, options: .atomic)
+        try FileReplace.atomic(written, to: url)
         return edit.removed.sorted().joined(separator: ", ")
     }
 }
@@ -333,8 +341,7 @@ enum ConfigFiles {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return "" }
         let edit = CodexConfig.commenting(text, date: date)
         guard !edit.removed.isEmpty else { return "" }
-        try backup(url)
-        try Data(edit.text.utf8).write(to: url, options: .atomic)
+        try FileReplace.atomic(Data(edit.text.utf8), to: url)
         return edit.removed.joined(separator: ", ")
     }
 
@@ -353,13 +360,8 @@ enum ConfigFiles {
         let data = try Data(contentsOf: url)
         let edit = try edit(data)
         guard let written = edit.data else { return "" }
-        try backup(url)
-        try written.write(to: url, options: .atomic)
+        try FileReplace.atomic(written, to: url)
         return edit.removed.sorted().joined(separator: ", ")
-    }
-
-    nonisolated private static func backup(_ url: URL) throws {
-        try FileBackup.copyOnce(url)
     }
 
     nonisolated private static func expand(_ path: String, home: URL) -> String {
@@ -408,7 +410,7 @@ enum Machine {
         report.ipv6Missing = iface6 == nil
         report.ipv6Skipped = report.ipv6RouteIsPhysical
         report.proxyEnabled = ProxyParse.enabled(in: (await proxy).stdout)
-        report.socketLeaks = System.socketLeaks(for: System.protectedProcesses())
+        report.socketLeaks = System.socketLeaks()
         let dnsText = (await dns).stdout
         report.nameservers = DNSParse.nameservers(in: dnsText)
         report.dnsInterfaces = DNSParse.interfaces(in: dnsText)

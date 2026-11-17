@@ -45,6 +45,7 @@ final class PacketDropControl: NSObject, OSSystemExtensionRequestDelegate {
             setArmed(false)
             return
         }
+        CavokNotify.post(PacketDropNote.check)
         let request = OSSystemExtensionRequest.activationRequest(
             forExtensionWithIdentifier: Self.extensionIdentifier,
             queue: .main
@@ -85,19 +86,31 @@ final class PacketDropControl: NSObject, OSSystemExtensionRequestDelegate {
 
     private func save(enabled: Bool, generation: Int) {
         let manager = NEFilterManager.shared()
-        manager.loadFromPreferences { [weak self] _ in
+        manager.loadFromPreferences { [weak self] error in
             guard let self else { return }
+            if error != nil {
+                Task { @MainActor in
+                    guard generation == self.generation else { return }
+                    self.setArmed(false)
+                }
+                return
+            }
             let configuration = NEFilterProviderConfiguration()
             configuration.filterSockets = true
             configuration.filterPackets = false
             manager.providerConfiguration = configuration
             manager.localizedDescription = "Cavok packet drop"
             manager.isEnabled = enabled
-            manager.saveToPreferences { _ in
+            manager.saveToPreferences { error in
                 Task { @MainActor in
                     guard generation == self.generation else { return }
+                    if error != nil {
+                        self.setArmed(false)
+                        return
+                    }
                     if enabled {
                         self.reloadLater(generation: generation)
+                        CavokNotify.post(PacketDropNote.check)
                     } else {
                         self.setArmed(false)
                     }
@@ -111,11 +124,11 @@ final class PacketDropControl: NSObject, OSSystemExtensionRequestDelegate {
             try? await Task.sleep(for: .milliseconds(800))
             guard let self, generation == self.generation else { return }
             let current = NEFilterManager.shared()
-            current.loadFromPreferences { [weak self] _ in
-                let enabled = NEFilterManager.shared().isEnabled
+            current.loadFromPreferences { [weak self] error in
+                let enabled = error == nil && NEFilterManager.shared().isEnabled
                 Task { @MainActor in
                     guard let self, generation == self.generation else { return }
-                    self.setArmed(enabled)
+                    if !enabled { self.setArmed(false) }
                 }
             }
         }

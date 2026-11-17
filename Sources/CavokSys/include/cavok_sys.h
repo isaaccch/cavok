@@ -14,6 +14,8 @@ bool cavok_route_socket_ok(void);
 int cavok_proc_read(int32_t pid, int32_t *ppid, uint64_t *start_sec, uint64_t *start_usec, char *command, int command_len);
 
 /// Writes up to `capacity` pids. Returns how many were written.
+/// A return equal to `capacity` means the buffer was full and the caller should grow it.
+/// The list itself is reread until it fits, or until a few doublings have been tried.
 int cavok_proc_pids(int32_t *pids, int capacity);
 
 /// How many pids a following call should allocate for.

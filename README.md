@@ -98,7 +98,7 @@ Check Again is Command-R. The same button is in the menu bar and the Dock menu.
 | Claude configs | A Claude settings file points at a relay or a proxy. Project files count, not only the one in your home folder. | **Remove**. |
 | Codex config | `~/.codex/config.toml` points at a relay. | **Comment out**. |
 | System proxy | macOS itself has an HTTP, HTTPS, SOCKS, or automatic proxy turned on. Claude and ChatGPT follow that. | **Turn off**. macOS asks for your password. Surfshark is left alone. |
-| Open app sockets | Claude, ChatGPT, or Codex still has a connection on Wi-Fi or Ethernet from before the VPN came up. | **Quit apps**. |
+| Open app sockets | Claude, ChatGPT, Codex, or a child of those processes still has a connection on Wi-Fi or Ethernet. vim, grep, man, and git do not match by name. | **Quit apps**. |
 | IPv6 | IPv6 would leave outside the tunnel, or claude.ai or chatgpt.com returned a real IPv6 address in HK, CN, MO, or a different country from that host's IPv4 exit. | **Set link-local**. macOS asks for your password. **Restore automatic** puts it back later. |
 | DNS | A resolver is on Wi-Fi or Ethernet while the IPv4 route is a tunnel. | **Flush** only clears the cache. An empty circle means the nameservers were read. That is not a pass. |
 | Time zone and locale | An exit is JP and the Mac clock is not Tokyo, or a locale or input source carries HK, CN, or MO while an exit is not that country. | Optional. **Set to Tokyo** only if you want the clock to match a Japan exit. Locale is not rewritten. |
@@ -113,7 +113,7 @@ Guard is the switch in the menu-bar panel and in Settings. Leave it on.
 
 | What happened | What Guard does |
 |---|---|
-| Surfshark drops, or the route goes back to Wi-Fi | Quits Claude, ChatGPT, `claude`, and `codex` immediately. |
+| Surfshark drops, or the route goes back to Wi-Fi | Quits Claude, ChatGPT, `claude`, `codex`, and a child of those processes. The set is taken before the first signal. |
 | A check actually comes back as HK, CN, or MO | Quits those same apps. |
 | You close the lid | Quits them normally, while the tunnel is still up. |
 | You open Claude or ChatGPT while the check is already bad | Quits them again. |
@@ -125,7 +125,7 @@ Guard is the switch in the menu-bar panel and in Settings. Leave it on.
 | The time zone, the locale, a curl challenge, or DNS | Nothing is quit. DNS warns only when a resolver interface is Wi-Fi or Ethernet while the IPv4 route is a tunnel. |
 | A check times out | Nothing is quit. The open buttons stay off until both exits have been read. |
 
-Cavok matches `claude`, `claude-code`, and `codex` (including `codex-aarch64-…`) by the program name. When the program is `node`, it matches the script path, including `@anthropic-ai/claude-code/` `cli.js`. A mention in vim, grep, man, or git does not count.
+Cavok matches `claude`, `claude-code`, and `codex` (including `codex-aarch64-…`) by the program name. When the program is `node`, it matches the script path, including `@anthropic-ai/claude-code/` `cli.js`. A mention in vim, grep, man, or git does not count. A child of a matched process does. The quit list is collected before the first signal, because SIGKILL of the parent does not take the child with it.
 
 ## Buttons along the bottom
 
@@ -197,15 +197,15 @@ The function that answers "tunnel, loopback, physical, or unknown" lives in Cavo
 | Physical: `en*`, `bridge*`, `ap*`, or a hardware port from `networksetup` | Drop. Nothing from that socket is transmitted. |
 | The route cannot be read | Drop. An unknown door is treated as the street door. |
 
-A final allow sticks to that socket. Later packets on it are not judged again. A connected TCP socket is bound to the address it had on the tunnel. When that interface disappears, those sends fail. They do not move onto Wi-Fi. The TCP leak is the new connect Electron opens after that failure, and that new connect is judged from scratch.
+A final allow sticks to that socket. Later packets on it are not judged again. A pid that cannot be read yet is held: those bytes are not passed, and that socket is not given a final allow. A connected TCP socket is bound to the address it had on the tunnel. When that interface disappears, those sends fail. They do not move onto Wi-Fi. The TCP leak is the new connect Electron opens after that failure, and that new connect is judged from scratch.
 
-UDP is weaker. A socket that was allowed while the tunnel was up can send again after the route changes, with no new socket event. QUIC on that kind of socket is the case. So a tunnel allow lasts only while the route for the public destination stays a tunnel. When that route leaves the tunnel, the extension force-quits the protected set, including descendants. The menu-bar quit still runs as well. The extension's quit is the one that does not wait for the menu-bar hop.
+UDP is weaker. A socket that was allowed while the tunnel was up can send again after the route changes, with no new socket event. QUIC on that kind of socket is the case. So a tunnel allow lasts only while the route for the public destination stays a tunnel. When that route leaves the tunnel, the extension force-quits the protected set, including descendants. The menu-bar quit collects that same set before it signals. The extension's quit is the one that does not wait for the menu-bar hop.
 
 The filter does not read the payload. It does not log the bytes. It looks at the process path, the arguments, the parent chain, the start time, and the interface name from the in-process lookup.
 
 A system DNS lookup is not one of those sockets. `getaddrinfo` asks `mDNSResponder`, and `mDNSResponder` sends the packet. The filter sees `mDNSResponder`, so this update does not claim to drop system lookups per app, and it does not add a DNS proxy. A lookup that the app sends on its own socket still goes through the socket rule. That includes Node's own resolver and Chromium's own resolver or DNS-over-HTTPS. The DNS row in the window stays a warning for the rest of the Mac.
 
-The existing quit stays, and the signals stay as they are today. A physical route, a bad exit, a split, a pin miss, a leftover proxy or relay, or a real IPv6 leak still force-quits Claude, ChatGPT, `claude`, and `codex`. Sleep still quits them normally, while the tunnel is up. A timeout, the clock, the locale, and a curl challenge still quit nothing.
+The existing quit stays, and the signals stay as they are today. A physical route, a bad exit, a split, a pin miss, a leftover proxy or relay, or a real IPv6 leak still force-quits Claude, ChatGPT, `claude`, `codex`, and a child of those processes. The list is taken before the first signal. Sleep still quits them normally, while the tunnel is up. A timeout, the clock, the locale, and a curl challenge still quit nothing.
 
 ### Why this shape
 

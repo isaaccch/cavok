@@ -14,16 +14,27 @@ int cavok_proc_count(void) {
 
 int cavok_proc_pids(int32_t *pids, int capacity) {
     if (pids == NULL || capacity <= 0) return 0;
-    int count = cavok_proc_count();
-    if (count <= 0) return 0;
-    pid_t *listed = calloc((size_t)count, sizeof(pid_t));
-    if (listed == NULL) return 0;
-    int bytes = proc_listallpids(listed, count * (int)sizeof(pid_t));
-    int got = bytes > 0 ? bytes / (int)sizeof(pid_t) : 0;
-    if (got > capacity) got = capacity;
-    for (int i = 0; i < got; i++) pids[i] = (int32_t)listed[i];
+    int slots = cavok_proc_count();
+    if (slots < 64) slots = 64;
+    pid_t *listed = NULL;
+    int got = 0;
+    for (int attempt = 0; attempt < 6; attempt++) {
+        pid_t *next = calloc((size_t)slots, sizeof(pid_t));
+        if (next == NULL) {
+            free(listed);
+            return 0;
+        }
+        free(listed);
+        listed = next;
+        int bytes = proc_listallpids(listed, slots * (int)sizeof(pid_t));
+        got = bytes > 0 ? bytes / (int)sizeof(pid_t) : 0;
+        if (got < slots || slots > (1 << 20)) break;
+        slots *= 2;
+    }
+    int copy = got > capacity ? capacity : got;
+    for (int i = 0; i < copy; i++) pids[i] = (int32_t)listed[i];
     free(listed);
-    return got;
+    return copy;
 }
 
 static void cavok_copy(char *destination, int destination_len, const char *source) {

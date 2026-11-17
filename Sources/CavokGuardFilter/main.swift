@@ -8,6 +8,7 @@ import NetworkExtension
 final class GuardFilter: NEFilterDataProvider {
     private let cache = ProtectionCache()
     private var watch: RouteWatch?
+    private var checkToken: Int32 = 0
 
     override func startFilter(completionHandler: @escaping (Error?) -> Void) {
         guard RouteSocket.available() else {
@@ -22,6 +23,9 @@ final class GuardFilter: NEFilterDataProvider {
         }
         watch.start()
         self.watch = watch
+        checkToken = CavokNotify.listen(PacketDropNote.check) { _ in
+            CavokNotify.post(PacketDropNote.ready)
+        }
         killIfPublicRouteLeft()
         notify_post_ready()
         completionHandler(nil)
@@ -30,14 +34,18 @@ final class GuardFilter: NEFilterDataProvider {
     override func stopFilter(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
         watch?.stop()
         watch = nil
+        let token = checkToken
+        checkToken = 0
+        if token != 0 { CavokNotify.cancel(token) }
+        CavokNotify.post(PacketDropNote.blocked)
         completionHandler()
     }
 
     override func handleNewFlow(_ flow: NEFilterFlow) -> NEFilterNewFlowVerdict {
-        switch judge(flow) {
+        switch judge(flow, stage: .newFlow) {
         case .allowFinal:
             return .allow()
-        case .allowWhileTunnel:
+        case .allowWhileTunnel, .hold:
             return NEFilterNewFlowVerdict.filterDataVerdict(
                 withFilterInbound: false,
                 peekInboundBytes: 0,
@@ -50,15 +58,26 @@ final class GuardFilter: NEFilterDataProvider {
     }
 
     override func handleOutboundData(from flow: NEFilterFlow, readBytesStartOffset offset: Int, readBytes: Data) -> NEFilterDataVerdict {
-        if judge(flow) == .drop {
+        switch judge(flow, stage: .outbound) {
+        case .drop:
             return .drop()
+        case .hold:
+            let peek = readBytes.count < Int.max ? readBytes.count + 1 : readBytes.count
+            return NEFilterDataVerdict(passBytes: 0, peekBytes: peek)
+        case .allowFinal:
+            return .allow()
+        case .allowWhileTunnel:
+            return NEFilterDataVerdict(passBytes: readBytes.count, peekBytes: 1)
         }
-        let pass = readBytes.count
-        return NEFilterDataVerdict(passBytes: pass, peekBytes: 1)
     }
 
     override func handleOutboundDataComplete(for flow: NEFilterFlow) -> NEFilterDataVerdict {
-        judge(flow) == .drop ? .drop() : .allow()
+        switch judge(flow, stage: .outbound) {
+        case .drop, .hold:
+            return .drop()
+        case .allowFinal, .allowWhileTunnel:
+            return .allow()
+        }
     }
 
     override func handleInboundData(from flow: NEFilterFlow, readBytesStartOffset offset: Int, readBytes: Data) -> NEFilterDataVerdict {
@@ -69,20 +88,30 @@ final class GuardFilter: NEFilterDataProvider {
         .allow()
     }
 
-    private func judge(_ flow: NEFilterFlow) -> FlowJudgment {
+    private func judge(_ flow: NEFilterFlow, stage: FlowStage) -> FlowJudgment {
         guard let socket = flow as? NEFilterSocketFlow else { return .allowFinal }
         guard let pid = ProcessTable.pid(from: socket.sourceProcessAuditToken ?? socket.sourceAppAuditToken) else {
             return .allowFinal
         }
-        let snaps = ProcessTable.allSnaps()
-        guard cache.isProtected(pid: pid, snaps: snaps) else { return .allowFinal }
-        let address = FlowRead.literal(socket)
-        switch PacketDrop.verdict(protected: true, route: RouteSocket.kind(for: address)) {
-        case .drop:
-            return .drop
-        case .allow:
-            if address.map(PacketDrop.isLoopbackAddress) == true { return .allowFinal }
-            return .allowWhileTunnel
+        switch PacketDrop.protection(pid: pid, snap: ProcessTable.snap, cache: cache) {
+        case .unprotected:
+            return .allowFinal
+        case .unresolved:
+            return .hold
+        case .protected:
+            guard let address = FlowRead.literal(socket) else {
+                if stage == .outbound { return .drop }
+                let route = RouteSocket.publicRoute()
+                if route.interface == nil || route.physical { return .drop }
+                return .hold
+            }
+            switch PacketDrop.verdict(protected: true, route: RouteSocket.kind(for: address)) {
+            case .drop:
+                return .drop
+            case .allow:
+                if PacketDrop.isLoopbackAddress(address) { return .allowFinal }
+                return .allowWhileTunnel
+            }
         }
     }
 
@@ -95,9 +124,15 @@ final class GuardFilter: NEFilterDataProvider {
     }
 }
 
+private enum FlowStage {
+    case newFlow
+    case outbound
+}
+
 private enum FlowJudgment {
     case allowFinal
     case allowWhileTunnel
+    case hold
     case drop
 }
 

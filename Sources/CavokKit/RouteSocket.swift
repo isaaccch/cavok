@@ -51,12 +51,18 @@ public enum ProcessTable {
     }
 
     public static func allSnaps() -> [Int32: ProcSnap] {
-        let count = Int(cavok_proc_count())
-        guard count > 0 else { return [:] }
-        var pids = [Int32](repeating: 0, count: count)
-        let got = Int(cavok_proc_pids(&pids, Int32(pids.count)))
+        var capacity = max(Int(cavok_proc_count()) + 64, 64)
+        var chosen: [Int32] = []
+        for _ in 0..<6 {
+            var buffer = [Int32](repeating: 0, count: capacity)
+            let got = Int(cavok_proc_pids(&buffer, Int32(buffer.count)))
+            let count = min(max(got, 0), buffer.count)
+            chosen = Array(buffer.prefix(count))
+            if got < capacity { break }
+            capacity *= 2
+        }
         var snaps: [Int32: ProcSnap] = [:]
-        for pid in pids.prefix(max(got, 0)) where pid > 1 {
+        for pid in chosen where pid > 1 {
             if let snap = snap(pid) { snaps[pid] = snap }
         }
         return snaps
