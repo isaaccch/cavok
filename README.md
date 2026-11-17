@@ -163,7 +163,7 @@ swift test
 
 Guard arms this drop when it is on. If the filter is not actually enabled, **Open Claude** and **Open ChatGPT** stay off. A green check still does not mean the account is safe, and this drop does not make the setup compliant.
 
-Today, a path change does not kill inside the path callback. Guard runs `route -n get` and `networksetup` on the side, then comes back to the main thread, then sends `SIGKILL`. The first path event is ignored. A change that is still a tunnel waits 2.5 seconds and runs a full check. Electron can open a new connection before that `SIGKILL` lands, and the kernel has already pointed the new connect at Wi-Fi or Ethernet. This update closes that gap for the processes below. It does not change what a green check means, and it does not make the setup compliant.
+A routing message, and a later path change, look up `1.1.1.1` on a routing socket in this process. They do not spawn `route` or `networksetup`. If that interface is Wi-Fi or Ethernet and Guard is on, Cavok force-quits the processes below. The first path event is ignored. A change that is still a tunnel waits 2.5 seconds and runs a full check. Electron can still open a new connection before that `SIGKILL` lands. The turnstile below is what stops that new socket. It does not change what a green check means, and it does not make the setup compliant.
 
 Picture the Mac as a building with two doors. The tunnel door is Surfshark. The street door is Wi-Fi or Ethernet. Guard today is a person who sees Claude heading for the street and runs over to pull them back. One step can already be on the pavement. That step is the packet. The update puts a turnstile on the street door. Safari, Mail, and Surfshark keep both doors, because Surfshark has to be able to reconnect.
 

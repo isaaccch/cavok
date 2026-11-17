@@ -19,6 +19,13 @@ public enum RouteSocket {
         return text.isEmpty ? nil : text
     }
 
+    /// Interface for `1.1.1.1`, and whether that interface is Wi-Fi or Ethernet.
+    /// One lookup. Unknown is not physical: a failed read must not quit anything.
+    public static func publicRoute() -> (interface: String?, physical: Bool) {
+        let name = interface(for: publicDestination)
+        return (name, PacketDrop.kind(interface: name) == .physical)
+    }
+
     /// Route kind for a destination. A missing literal uses the public address, the same lookup as `route -n get 1.1.1.1`.
     public static func kind(for address: String?) -> PacketDrop.RouteKind {
         if let address, PacketDrop.isLoopbackAddress(address) { return .loopback }

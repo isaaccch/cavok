@@ -7,10 +7,14 @@ import Network
 final class Watchdog {
     private weak var store: FixStore?
     private var monitor: NWPathMonitor?
+    private var routes: RouteEvents?
     private let queue = DispatchQueue(label: "cavok.watchdog")
     private var debounce: Task<Void, Never>?
     private var killLoop: Task<Void, Never>?
     private var sawFirstPath = false
+    private var routeReadInFlight = false
+    private var routeReadAgain = false
+    private var routeReadResetsInspect = false
     private var sleepObserver: NSObjectProtocol?
     private var launchObserver: NSObjectProtocol?
 
@@ -21,13 +25,21 @@ final class Watchdog {
     func start() {
         guard monitor == nil else { return }
         let monitor = NWPathMonitor()
-        monitor.pathUpdateHandler = { [weak self] _ in
+        monitor.pathUpdateHandler = { @Sendable [weak self] _ in
             Task { @MainActor in
                 self?.onPathUpdate()
             }
         }
         monitor.start(queue: queue)
         self.monitor = monitor
+
+        let routes = RouteEvents { @Sendable [weak self] in
+            Task { @MainActor in
+                self?.readRoute(resetsInspect: false)
+            }
+        }
+        routes.start()
+        self.routes = routes
 
         let center = NSWorkspace.shared.notificationCenter
         sleepObserver = center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
@@ -67,20 +79,37 @@ final class Watchdog {
             sawFirstPath = true
             return
         }
-        debounce?.cancel()
+        readRoute(resetsInspect: true)
+    }
+
+    /// One in-process lookup for `1.1.1.1`. A second wake during that lookup runs again after it.
+    /// A routing-socket wake does not reset the 2.5 second settle. A path change does.
+    private func readRoute(resetsInspect: Bool) {
+        if resetsInspect {
+            debounce?.cancel()
+            routeReadResetsInspect = true
+        }
+        if routeReadInFlight {
+            routeReadAgain = true
+            return
+        }
+        routeReadInFlight = true
         Task.detached {
-            let route = System.routeLookup(RouteQuery.ipv4Destination)
-            let ports = System.run("/usr/sbin/networksetup", ["-listallhardwareports"])
-            let hardware = RouteParse.hardwareDevices(in: ports.stdout)
-            let interface = route.code == 0 ? RouteParse.interfaceName(in: route.stdout) : nil
-            let physical = interface.map { RouteParse.isPhysical($0, hardware: hardware) } ?? false
+            let probe = RouteSocket.publicRoute()
             await MainActor.run { [weak self] in
-                self?.handle(interface: interface, physical: physical)
+                guard let self else { return }
+                self.routeReadInFlight = false
+                let again = self.routeReadAgain
+                let reset = self.routeReadResetsInspect
+                self.routeReadAgain = false
+                self.routeReadResetsInspect = false
+                self.handle(interface: probe.interface, physical: probe.physical, resetsInspect: reset)
+                if again { self.readRoute(resetsInspect: false) }
             }
         }
     }
 
-    private func handle(interface: String?, physical: Bool) {
+    private func handle(interface: String?, physical: Bool, resetsInspect: Bool) {
         guard let store else { return }
         if physical && store.guardOn {
             let labels = System.terminateProtected(force: true)
@@ -91,7 +120,7 @@ final class Watchdog {
             store.inspect(keepNote: true)
             return
         }
-        scheduleInspect()
+        if resetsInspect { scheduleInspect() }
     }
 
     private func scheduleInspect() {

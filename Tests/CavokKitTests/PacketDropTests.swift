@@ -69,6 +69,16 @@ private func snap(_ pid: Int32, _ ppid: Int32, _ command: String, start: UInt64 
     #expect(cache.isProtected(pid: 7, snaps: again))
 }
 
+@Test func routeLookupStillWorksWhileListening() throws {
+    guard RouteSocket.available() else { return }
+    let events = RouteEvents { }
+    events.start()
+    defer { events.stop() }
+    let got = try #require(RouteSocket.interface(for: "1.1.1.1"))
+    #expect(!got.isEmpty)
+    #expect(RouteSocket.publicRoute().interface == got)
+}
+
 @Test func inProcessRouteMatchesRouteCommand() throws {
     guard RouteSocket.available() else { return }
     let got = try #require(RouteSocket.interface(for: "1.1.1.1"))

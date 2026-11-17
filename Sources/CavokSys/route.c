@@ -5,10 +5,15 @@
 #include <net/if.h>
 #include <net/route.h>
 #include <netinet/in.h>
+#include <stdatomic.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
+
+// A flap can deliver a burst of RTM_IFINFO and RTM_NEWADDR before our RTM_GET reply.
+// Those messages are skipped. The cap only stops a flood; the socket timeout stops a quiet socket.
+#define CAVOK_ROUTE_SKIP_CAP 256
 
 bool cavok_route_socket_ok(void) {
     int fd = socket(PF_ROUTE, SOCK_RAW, 0);
@@ -18,7 +23,8 @@ bool cavok_route_socket_ok(void) {
 }
 
 int cavok_route_interface(const char *address, char *name, int name_len) {
-    if (address == NULL || name == NULL || name_len < 2) return -1;
+    // if_indextoname writes IF_NAMESIZE bytes and does not take a length.
+    if (address == NULL || name == NULL || name_len < IF_NAMESIZE) return -1;
     name[0] = '\0';
 
     struct sockaddr_storage destination;
@@ -49,8 +55,8 @@ int cavok_route_interface(const char *address, char *name, int name_len) {
         return -1;
     }
     memcpy(request + sizeof(struct rt_msghdr), &destination, address_len);
-    static uint32_t sequence = 1;
-    uint32_t seq = sequence++;
+    static atomic_uint_least32_t sequence = 1;
+    uint32_t seq = atomic_fetch_add_explicit(&sequence, 1, memory_order_relaxed);
     header->rtm_msglen = (u_short)(sizeof(struct rt_msghdr) + address_len);
     header->rtm_version = RTM_VERSION;
     header->rtm_type = RTM_GET;
@@ -66,11 +72,19 @@ int cavok_route_interface(const char *address, char *name, int name_len) {
 
     unsigned char reply[2048];
     int found = 0;
-    for (int attempt = 0; attempt < 8; attempt++) {
+    int skipped = 0;
+    while (skipped < CAVOK_ROUTE_SKIP_CAP) {
         ssize_t got = read(fd, reply, sizeof(reply));
+        if (got < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
         if (got < (ssize_t)sizeof(struct rt_msghdr)) break;
         struct rt_msghdr *answer = (struct rt_msghdr *)reply;
-        if (answer->rtm_type != RTM_GET || answer->rtm_seq != (int)seq || answer->rtm_pid != getpid()) continue;
+        if (answer->rtm_type != RTM_GET || answer->rtm_seq != (int)seq || answer->rtm_pid != getpid()) {
+            skipped++;
+            continue;
+        }
         if (answer->rtm_errno != 0) break;
         if (answer->rtm_index != 0 && if_indextoname(answer->rtm_index, name) != NULL && name[0] != '\0') {
             found = 1;
