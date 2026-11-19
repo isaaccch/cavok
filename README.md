@@ -117,7 +117,7 @@ Guard is the switch in the menu-bar panel and in Settings. Leave it on.
 | A check actually comes back as HK, CN, or MO | Quits those same apps. |
 | You close the lid | Quits them normally, while the tunnel is still up. |
 | The Mac wakes | Waits 2.5 seconds, then runs a full check. A network change during that wait starts the wait over. |
-| The tunnel stays up and five minutes pass | Reads both exits again. A full check runs only when an address or country changed. A timeout changes nothing. |
+| The tunnel stays up and a minute passes | Reads both exits again. A full check runs when an address or country changed, or after two quiet readings in a row. A timeout by itself changes nothing. |
 | You open Claude or ChatGPT while the check is already bad | Quits them again. |
 | A pin is set and either exit is a different IP, including another Japan IP | Quits those same apps. |
 | Claude and ChatGPT were both read and the addresses differ | Quits those same apps. |

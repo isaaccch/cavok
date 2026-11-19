@@ -107,6 +107,22 @@ private func japanExit() -> ExitReading {
     #expect(ExitDrift.changed(from: onlyClaude, to: withChatGPT))
 }
 
+@Test func exitDriftQuietHostIsAQuietReading() {
+    var quietClaude = japanExit()
+    quietClaude.claudeIP = nil
+    quietClaude.claudeLoc = nil
+    #expect(ExitDrift.wentQuiet(from: japanExit(), to: quietClaude))
+
+    var quietChatGPT = japanExit()
+    quietChatGPT.chatgptIP = nil
+    quietChatGPT.chatgptLoc = nil
+    #expect(ExitDrift.wentQuiet(from: japanExit(), to: quietChatGPT))
+
+    #expect(!ExitDrift.wentQuiet(from: japanExit(), to: japanExit()))
+    #expect(!ExitDrift.wentQuiet(from: ExitReading(), to: ExitReading()))
+    #expect(!ExitDrift.wentQuiet(from: quietClaude, to: quietClaude))
+}
+
 @Test func sessionGateSocketLeakBlocksOpen() {
     var facts = sharedExit()
     facts.socketLeak = true

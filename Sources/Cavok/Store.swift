@@ -87,14 +87,19 @@ final class FixStore {
     }
 
     func exitDrifted(_ seen: ExitReading) -> Bool {
-        ExitDrift.changed(
-            from: ExitReading(
-                claudeIP: report.ip,
-                claudeLoc: report.loc,
-                chatgptIP: report.chatgptIP,
-                chatgptLoc: report.chatgptLoc
-            ),
-            to: seen
+        ExitDrift.changed(from: lastExit, to: seen)
+    }
+
+    func exitWentQuiet(_ seen: ExitReading) -> Bool {
+        ExitDrift.wentQuiet(from: lastExit, to: seen)
+    }
+
+    private var lastExit: ExitReading {
+        ExitReading(
+            claudeIP: report.ip,
+            claudeLoc: report.loc,
+            chatgptIP: report.chatgptIP,
+            chatgptLoc: report.chatgptLoc
         )
     }
 

@@ -40,7 +40,7 @@ Each row is one check. A warning is an orange triangle. A clear row is a green c
 
 - When the route changes, Cavok looks up `1.1.1.1` on a routing socket in this process. That is the same answer as `route -n get 1.1.1.1`. If that interface is Wi-Fi or Ethernet, Guard force-quits Claude, ChatGPT, `claude`, `codex`, and a child of those processes. The set is taken before the first signal. A path change does the same lookup. Neither one spawns `route` or `networksetup`.
 - If the route is still a tunnel, Cavok waits 2.5 seconds and runs a full check, so a Surfshark reconnect can finish before the trace.
-- Every five minutes, while the route is a tunnel, Cavok reads both IPv4 exits again. If an address or country changed, it runs a full check. A host that did not answer is not a change.
+- Every minute, while the route is a tunnel, Cavok reads both IPv4 exits again. If an address or country changed, it runs a full check. A host that did not answer is not a change, but two quiet readings in a row—a host that answered last time now returns nothing—run a full check. The rows then show "did not answer" and Open turns off. Nothing is quit.
 - When the Mac wakes, Cavok waits 2.5 seconds and runs a full check. A route change during that wait starts the wait over.
 - A completed trace of HK, CN, or MO on Claude or ChatGPT force-quits the same processes. So does a pin mismatch on either exit, including another Japan IP, and two IPv4 exits that were both read and differ. A leftover in the shell, the login environment, a Claude config, the Codex config, or the system proxy does too. So does a Claude or ChatGPT connection on Wi-Fi or Ethernet. A real IPv6 leak does too: the IPv6 route is physical, or either host returned a real IPv6 address in HK, CN, or MO, or in a different country from that host's IPv4 exit.
 - A timeout does not quit anything. The open buttons stay off until both exits have been read. No pin yet, with both countries allowed and equal, does not quit anything. The time zone, the locale, a curl challenge, and DNS do not quit anything.
@@ -79,7 +79,7 @@ A timeout stays a failure to measure. Cavok does not turn a failed request into 
 
 ## Where the data stays
 
-When the route is a tunnel, the exit check is one IPv4 request to `claude.ai`, one IPv4 request to `chatgpt.com`, header checks for both homepages, and an IPv6 request to each trace URL when that route is a tunnel too. While that route stays a tunnel, the same two IPv4 trace requests run again every five minutes. A full check follows only when an address or country changed. Nothing is uploaded to a Cavok server. The pinned IP, the saved time zone, the Guard switch, the project folders, and the "IPv6 was changed" flag live in this Mac's preferences. The first time a file is edited, `.cavok-bak` is written beside it. A later edit keeps that first copy.
+When the route is a tunnel, the exit check is one IPv4 request to `claude.ai`, one IPv4 request to `chatgpt.com`, header checks for both homepages, and an IPv6 request to each trace URL when that route is a tunnel too. While that route stays a tunnel, the same two IPv4 trace requests run again every minute. A full check follows only when an address or country changed, or after two quiet readings in a row. Nothing is uploaded to a Cavok server. The pinned IP, the saved time zone, the Guard switch, the project folders, and the "IPv6 was changed" flag live in this Mac's preferences. The first time a file is edited, `.cavok-bak` is written beside it. A later edit keeps that first copy.
 
 ## Using it
 

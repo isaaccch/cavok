@@ -98,6 +98,12 @@ public enum ExitDrift {
             || hostChanged(previous.chatgptIP, previous.chatgptLoc, next.chatgptIP, next.chatgptLoc)
     }
 
+    /// True when a host that answered last time now returns nothing.
+    public static func wentQuiet(from previous: ExitReading, to next: ExitReading) -> Bool {
+        (previous.claudeIP != nil && next.claudeIP == nil)
+            || (previous.chatgptIP != nil && next.chatgptIP == nil)
+    }
+
     private static func hostChanged(
         _ previousIP: String?,
         _ previousLoc: String?,

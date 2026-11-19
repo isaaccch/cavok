@@ -158,13 +158,24 @@ final class Watchdog {
     private func startRecheck() {
         guard recheckLoop == nil else { return }
         recheckLoop = Task { @MainActor [weak self] in
+            var quiet = 0
             while !Task.isCancelled {
                 try? await Task.sleep(for: Self.recheckEvery)
                 guard !Task.isCancelled, let self, let store = self.store else { break }
                 guard !store.busy, store.routeIsTunnel else { continue }
                 let seen = await Machine.traceExits()
-                guard !Task.isCancelled, !store.busy, store.exitDrifted(seen) else { continue }
-                store.inspect()
+                guard !Task.isCancelled, !store.busy else { continue }
+                if store.exitDrifted(seen) {
+                    quiet = 0
+                    store.inspect()
+                } else if store.exitWentQuiet(seen) {
+                    quiet += 1
+                    guard quiet >= 2 else { continue }
+                    quiet = 0
+                    store.inspect()
+                } else {
+                    quiet = 0
+                }
             }
             self?.recheckLoop = nil
         }
@@ -175,7 +186,7 @@ final class Watchdog {
            let seconds = Double(raw), seconds > 0 {
             return .seconds(seconds)
         }
-        return .seconds(5 * 60)
+        return .seconds(60)
     }
 
     private func onProtectedLaunch() {
