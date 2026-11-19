@@ -45,6 +45,9 @@ struct MenuBarView: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    if store.packetDropNeedsApproval {
+                        Button("Open System Settings") { store.openExtensionSettings() }
+                    }
                 }
                 HStack(spacing: Space.sm) {
                     Button("Check Again") { store.inspect() }
@@ -99,6 +102,9 @@ struct MenuBarSettings: View {
                     Text(store.packetDropLine)
                         .font(.callout)
                         .foregroundStyle(.secondary)
+                    if store.packetDropNeedsApproval {
+                        Button("Open System Settings") { store.openExtensionSettings() }
+                    }
                 }
             } footer: {
                 Text("Guard quits Claude, ChatGPT, claude, and codex when the route leaves the tunnel, either exit is HK, CN, or MO, the two exits differ, a pinned IP does not match, a proxy or custom API address is still set, a Claude or ChatGPT connection is on Wi-Fi or Ethernet, or IPv6 leaks. Sleep quits them too. Another Japan IP fails the pin. A timeout, the time zone, a curl challenge, or DNS does not quit anything.")

@@ -7,23 +7,31 @@ extension Notification.Name {
     static let packetDropArmed = Notification.Name("cavok.packetDropArmed")
 }
 
+enum PacketDropState: Equatable {
+    case off
+    case armed
+    case notBundled
+    case needsApproval
+    case failed(String)
+}
+
 @MainActor
 final class PacketDropControl: NSObject, OSSystemExtensionRequestDelegate {
     static let extensionIdentifier = "com.isaaccheung.cavok.guard"
 
-    private var armed = false
+    private var state: PacketDropState = .off
     private var generation = 0
     private var readyToken: Int32 = 0
     private var blockedToken: Int32 = 0
-    var onChange: ((Bool) -> Void)?
+    var onChange: ((PacketDropState) -> Void)?
 
     override init() {
         super.init()
         readyToken = CavokNotify.listen(PacketDropNote.ready) { [weak self] _ in
-            Task { @MainActor in self?.setArmed(true) }
+            Task { @MainActor in self?.setState(.armed) }
         }
         blockedToken = CavokNotify.listen(PacketDropNote.blocked) { [weak self] _ in
-            Task { @MainActor in self?.setArmed(false) }
+            Task { @MainActor in self?.setState(.failed("The filter stopped.")) }
         }
     }
 
@@ -42,7 +50,7 @@ final class PacketDropControl: NSObject, OSSystemExtensionRequestDelegate {
             return
         }
         guard extensionIsBundled else {
-            setArmed(false)
+            setState(.notBundled)
             return
         }
         CavokNotify.post(PacketDropNote.check)
@@ -63,19 +71,19 @@ final class PacketDropControl: NSObject, OSSystemExtensionRequestDelegate {
     }
 
     func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {
-        setArmed(false)
+        setState(.needsApproval)
     }
 
     func request(_ request: OSSystemExtensionRequest, didFinishWithResult result: OSSystemExtensionRequest.Result) {
         guard result == .completed else {
-            setArmed(false)
+            setState(.failed("The extension did not finish activating."))
             return
         }
         save(enabled: true, generation: generation)
     }
 
     func request(_ request: OSSystemExtensionRequest, didFailWithError error: Error) {
-        setArmed(false)
+        setState(.failed(error.localizedDescription))
     }
 
     private var extensionIsBundled: Bool {
@@ -91,7 +99,7 @@ final class PacketDropControl: NSObject, OSSystemExtensionRequestDelegate {
             if error != nil {
                 Task { @MainActor in
                     guard generation == self.generation else { return }
-                    self.setArmed(false)
+                    self.setState(.failed(error?.localizedDescription ?? "The filter settings could not be loaded."))
                 }
                 return
             }
@@ -104,15 +112,15 @@ final class PacketDropControl: NSObject, OSSystemExtensionRequestDelegate {
             manager.saveToPreferences { error in
                 Task { @MainActor in
                     guard generation == self.generation else { return }
-                    if error != nil {
-                        self.setArmed(false)
+                    if let error {
+                        self.setState(.failed(error.localizedDescription))
                         return
                     }
                     if enabled {
                         self.reloadLater(generation: generation)
                         CavokNotify.post(PacketDropNote.check)
                     } else {
-                        self.setArmed(false)
+                        self.setState(.off)
                     }
                 }
             }
@@ -128,15 +136,15 @@ final class PacketDropControl: NSObject, OSSystemExtensionRequestDelegate {
                 let enabled = error == nil && NEFilterManager.shared().isEnabled
                 Task { @MainActor in
                     guard let self, generation == self.generation else { return }
-                    if !enabled { self.setArmed(false) }
+                    if !enabled { self.setState(.failed("The filter is not enabled in System Settings.")) }
                 }
             }
         }
     }
 
-    private func setArmed(_ on: Bool) {
-        guard armed != on else { return }
-        armed = on
-        onChange?(on)
+    private func setState(_ next: PacketDropState) {
+        guard state != next else { return }
+        state = next
+        onChange?(next)
     }
 }

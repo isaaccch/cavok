@@ -242,6 +242,9 @@ The Guard control in the menu bar and in the window gains one line:
 | State | Line |
 |---|---|
 | Filter enabled | Packet drop is on. Wi-Fi and Ethernet stay closed for Claude and ChatGPT. |
+| The extension is not in this build | Packet drop is not armed. This build does not include the filter extension. Open stays off. |
+| macOS needs approval | Packet drop needs your approval in System Settings. **Open System Settings** sits next to the line. Open stays off. |
+| Activation or preferences failed | The line names the error. Open stays off. |
 | Guard on, filter not enabled | Packet drop is not armed. Open stays off. |
 
 ### How it will be checked

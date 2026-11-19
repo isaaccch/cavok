@@ -22,6 +22,9 @@ struct ContentView: View {
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
+                        if store.packetDropNeedsApproval {
+                            Button("Open System Settings") { store.openExtensionSettings() }
+                        }
                     }
                 }
                 ForEach(FixStore.sections) { section in

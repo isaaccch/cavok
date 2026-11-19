@@ -68,7 +68,7 @@ final class FixStore {
     var note = ""
     var busy = false
     var guardOn: Bool
-    var packetDropArmed = false
+    var packetDropState: PacketDropState = .off
     var workspacePaths: [String]
     let preview: Bool
     private var didStart = false
@@ -127,10 +127,27 @@ final class FixStore {
         return SessionGate.canOpen(facts())
     }
 
+    var packetDropArmed: Bool {
+        packetDropState == .armed
+    }
+
+    var packetDropNeedsApproval: Bool {
+        packetDropState == .needsApproval
+    }
+
     var packetDropLine: String {
-        packetDropArmed
-            ? "Packet drop is on. Wi-Fi and Ethernet stay closed for Claude and ChatGPT."
-            : "Packet drop is not armed. Open stays off."
+        switch packetDropState {
+        case .armed:
+            "Packet drop is on. Wi-Fi and Ethernet stay closed for Claude and ChatGPT."
+        case .notBundled:
+            "Packet drop is not armed. This build does not include the filter extension. Open stays off."
+        case .needsApproval:
+            "Packet drop needs your approval in System Settings. Open stays off."
+        case .failed(let reason):
+            "Packet drop is not armed. \(reason.hasSuffix(".") ? reason : reason + ".") Open stays off."
+        case .off:
+            "Packet drop is not armed. Open stays off."
+        }
     }
 
     var openHelp: String {
@@ -167,6 +184,11 @@ final class FixStore {
         dropControl?.setEnabled(on)
     }
 
+    func openExtensionSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     func pickRoot() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -200,8 +222,8 @@ final class FixStore {
         }
         if dropControl == nil {
             let control = PacketDropControl()
-            control.onChange = { [weak self] armed in
-                self?.packetDropArmed = armed
+            control.onChange = { [weak self] state in
+                self?.packetDropState = state
             }
             dropControl = control
             CavokActions.disablePacketDrop = { [weak control] in
