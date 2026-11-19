@@ -107,6 +107,13 @@ private func japanExit() -> ExitReading {
     #expect(ExitDrift.changed(from: onlyClaude, to: withChatGPT))
 }
 
+@Test func sessionGateSocketLeakBlocksOpen() {
+    var facts = sharedExit()
+    facts.socketLeak = true
+    #expect(SessionGate.blockingReason(facts) == SessionGate.socketLeakReason)
+    #expect(!SessionGate.canOpen(facts))
+}
+
 @Test func sessionGateBothExitsAllowedWithNoPinCanOpen() {
     let facts = sharedExit()
     #expect(SessionGate.blockingReason(facts) == nil)

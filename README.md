@@ -22,7 +22,7 @@ Before you open either app, Cavok looks for the ways this Mac can still show a h
 - A DNS resolver is bound to Wi-Fi or Ethernet while the IPv4 route is a tunnel. Reading the resolver addresses is not, by itself, a pass.
 - The clock is not Tokyo while an exit is JP, or the locale, languages, or input sources still carry HK, CN, or MO. That row is a warning. It does not quit anything, and it does not rewrite the locale.
 
-Guard is the part that acts. While it is on, Cavok quits Claude, ChatGPT, `claude`, and `codex` when the route leaves the tunnel, either exit is a bad country, the two exits disagree, a pinned IP no longer matches, a proxy or relay is still set, or IPv6 is a real leak. It also quits them when the lid closes, while the tunnel is still up. A timeout, the clock, the locale, a curl challenge, and ordinary DNS do not quit anything.
+Guard is the part that acts. While it is on, Cavok quits Claude, ChatGPT, `claude`, and `codex` when the route leaves the tunnel, either exit is a bad country, the two exits disagree, a pinned IP no longer matches, a proxy or relay is still set, a Claude or ChatGPT connection is on Wi-Fi or Ethernet, or IPv6 is a real leak. It also quits them when the lid closes, while the tunnel is still up. A timeout, the clock, the locale, a curl challenge, and ordinary DNS do not quit anything.
 
 **Open Claude** and **Open ChatGPT** stay off until both exits have been read and they agree on an allowed address, the route is a tunnel, no socket is on Wi-Fi or Ethernet, and Guard has nothing to quit for. The buttons open the apps, or the websites if the apps are not installed. They do not log in.
 
@@ -122,6 +122,7 @@ Guard is the switch in the menu-bar panel and in Settings. Leave it on.
 | A pin is set and either exit is a different IP, including another Japan IP | Quits those same apps. |
 | Claude and ChatGPT were both read and the addresses differ | Quits those same apps. |
 | A shell file, the login environment, a Claude config, the Codex config, or a system proxy still has a leftover | Quits those same apps. |
+| A Claude or ChatGPT connection is on Wi-Fi or Ethernet | Quits those same apps, then reads the sockets once more. |
 | IPv6 is on Wi-Fi or Ethernet, or either host returned a real IPv6 address in HK, CN, MO, or a different country from that host's IPv4 exit | Quits those same apps. |
 | No pin yet, and both exits are the same allowed country | Nothing is quit. Both exit rows stay orange until you pin that shared address. |
 | The time zone, the locale, a curl challenge, or DNS | Nothing is quit. DNS warns only when a resolver interface is Wi-Fi or Ethernet while the IPv4 route is a tunnel. |

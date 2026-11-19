@@ -39,7 +39,7 @@ struct MenuBarView: View {
             Divider()
             VStack(alignment: .leading, spacing: Space.sm) {
                 Toggle("Guard", isOn: Binding(get: { store.guardOn }, set: { store.setGuard($0) }))
-                    .help("Quit Claude, ChatGPT, claude, and codex when the route, either exit, a pin, a leftover, or IPv6 is blocked, and when the Mac sleeps. A timeout does not.")
+                    .help("Quit Claude, ChatGPT, claude, and codex when the route, either exit, a pin, a socket on Wi-Fi or Ethernet, a leftover, or IPv6 is blocked, and when the Mac sleeps. A timeout does not.")
                 if store.guardOn {
                     Text(store.packetDropLine)
                         .font(.callout)
@@ -101,7 +101,7 @@ struct MenuBarSettings: View {
                         .foregroundStyle(.secondary)
                 }
             } footer: {
-                Text("Guard quits Claude, ChatGPT, claude, and codex when the route leaves the tunnel, either exit is HK, CN, or MO, the two exits differ, a pinned IP does not match, a proxy or custom API address is still set, or IPv6 leaks. Sleep quits them too. Another Japan IP fails the pin. A timeout, the time zone, a curl challenge, or DNS does not quit anything.")
+                Text("Guard quits Claude, ChatGPT, claude, and codex when the route leaves the tunnel, either exit is HK, CN, or MO, the two exits differ, a pinned IP does not match, a proxy or custom API address is still set, a Claude or ChatGPT connection is on Wi-Fi or Ethernet, or IPv6 leaks. Sleep quits them too. Another Japan IP fails the pin. A timeout, the time zone, a curl challenge, or DNS does not quit anything.")
             }
             Section {
                 if store.workspacePaths.isEmpty {

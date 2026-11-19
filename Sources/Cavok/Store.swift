@@ -75,6 +75,7 @@ final class FixStore {
     private var report = MachineReport()
     private var watchdog: Watchdog?
     private var dropControl: PacketDropControl?
+    private var socketLeakReinspected = false
     @ObservationIgnored private var inspectGeneration = 0
 
     var blockingReason: String? {
@@ -280,10 +281,22 @@ final class FixStore {
     }
 
     private func enforceGuard() {
-        guard guardOn, let reason = blockingReason else { return }
+        guard guardOn, let reason = blockingReason else {
+            socketLeakReinspected = false
+            return
+        }
         let labels = System.terminateProtected(force: true)
-        guard !labels.isEmpty, note.isEmpty else { return }
-        note = "Guard quit \(labels.sorted().joined(separator: ", ")). \(reason)"
+        guard !labels.isEmpty else { return }
+        if note.isEmpty {
+            note = "Guard quit \(labels.sorted().joined(separator: ", ")). \(reason)"
+        }
+        guard reason == SessionGate.socketLeakReason else {
+            socketLeakReinspected = false
+            return
+        }
+        guard !socketLeakReinspected else { return }
+        socketLeakReinspected = true
+        inspect(keepNote: true)
     }
 
     private func pin() {

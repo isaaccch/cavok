@@ -114,6 +114,8 @@ public enum ExitDrift {
 }
 
 public enum SessionGate {
+    public static let socketLeakReason = "Claude or ChatGPT has a connection on Wi-Fi or Ethernet."
+
     /// Why Guard should quit, or nil when this reading is not a block.
     /// A missing trace, a time zone, a curl challenge, and DNS are not reasons.
     public static func blockingReason(_ facts: SessionFacts) -> String? {
@@ -137,6 +139,9 @@ public enum SessionGate {
         }
         if let claudeIP = facts.claudeIP, let chatgptIP = facts.chatgptIP, claudeIP != chatgptIP {
             return "Claude's exit is \(claudeIP) and ChatGPT's exit is \(chatgptIP)."
+        }
+        if facts.socketLeak {
+            return socketLeakReason
         }
         if facts.shellLeftover {
             return "A shell startup file still sets a proxy or custom API address."
