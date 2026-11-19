@@ -73,6 +73,8 @@ These can still get an account flagged. Cavok has no row for them.
 - HTTP/3 as its own path. The route check covers the interface. It does not open a QUIC connection.
 - WebRTC, abuse lists, and payment history.
 - What you type in a chat. Usage Policy and Terms violations are outside this app.
+- A `claude` or `codex` started in a terminal before Guard sees the new socket. With the filter armed, every new socket from those processes is still judged. Catching the launch any earlier needs an Endpoint Security entitlement from Apple.
+- Bytes already handed to the kernel before that judgment cannot be recalled.
 - Folders you have not added. Settings starts with Projects and Developer when those exist. Desktop is not scanned until you add it.
 
 A timeout stays a failure to measure. Cavok does not turn a failed request into a green check, and Guard does not quit apps because a trace timed out.

@@ -48,6 +48,8 @@ A Japan exit also does not change where the account was created, where the card 
 - Surfshark's selected server, protocol, Kill Switch, and Bypasser. Any `utun` looks like a tunnel.
 - The browser. Sockets are checked for Claude, ChatGPT, `claude`, and `codex`. Chrome and Safari are not. WebRTC, DNS-over-HTTPS, and Private Relay are not.
 - The phone apps. A phone on home Wi-Fi writes that address onto the same account.
+- A `claude` or `codex` started in a terminal before Guard sees the new socket. The armed filter still judges every new socket from those processes. Catching the launch any earlier needs an Endpoint Security entitlement from Apple.
+- Bytes already handed to the kernel before that judgment cannot be recalled.
 - Project files on the Desktop, until you add that folder in Settings.
 
 Reports name the setting that was found. They do not include secret values, and nothing is uploaded to a Cavok server. The pinned IP, the saved time zone, Guard, and the project folders stay in this Mac's preferences. The first time a file is edited, the original is kept beside it as `.cavok-bak`. A later clean does not replace that first copy.
