@@ -86,6 +86,14 @@ final class FixStore {
         report.routeIsTunnel
     }
 
+    var claudeRemoteIP: String? {
+        report.claudeRemoteIP
+    }
+
+    var chatgptRemoteIP: String? {
+        report.chatgptRemoteIP
+    }
+
     func exitDrifted(_ seen: ExitReading) -> Bool {
         ExitDrift.changed(from: lastExit, to: seen)
     }
@@ -298,6 +306,10 @@ final class FixStore {
             routeIsPhysical: report.routeIsPhysical,
             routeIsTunnel: report.routeIsTunnel,
             routeInterface: report.routeInterface,
+            claudeRouteIsPhysical: report.claudeRouteIsPhysical,
+            claudeRouteInterface: report.claudeRouteInterface,
+            chatgptRouteIsPhysical: report.chatgptRouteIsPhysical,
+            chatgptRouteInterface: report.chatgptRouteInterface,
             claudeIP: report.ip,
             claudeLoc: report.loc,
             chatgptIP: report.chatgptIP,

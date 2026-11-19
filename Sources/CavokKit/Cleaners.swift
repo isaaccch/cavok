@@ -208,6 +208,14 @@ public enum TraceParse {
         }
         return nil
     }
+
+    /// The address curl connected to, written by `-w remote=%{remote_ip}`.
+    public static func remoteAddress(in text: String) -> String? {
+        guard let value = field("remote", in: text), value != "0.0.0.0", PacketDrop.isIPLiteral(value) else {
+            return nil
+        }
+        return value
+    }
 }
 
 public enum ServiceList {

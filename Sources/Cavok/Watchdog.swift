@@ -92,7 +92,8 @@ final class Watchdog {
         readRoute(resetsInspect: true)
     }
 
-    /// One in-process lookup for `1.1.1.1`. A second wake during that lookup runs again after it.
+    /// In-process lookups for `1.1.1.1` and the two stored service addresses.
+    /// A second wake during that lookup runs again after it.
     /// A routing-socket wake does not reset the 2.5 second settle. A path change does.
     private func readRoute(resetsInspect: Bool) {
         if resetsInspect {
@@ -104,8 +105,21 @@ final class Watchdog {
             return
         }
         routeReadInFlight = true
+        let claudeRemote = store?.claudeRemoteIP
+        let chatgptRemote = store?.chatgptRemoteIP
         Task.detached {
             let probe = RouteSocket.publicRoute()
+            let claude = claudeRemote.flatMap { RouteSocket.interface(for: $0) }
+            let chatgpt = chatgptRemote.flatMap { RouteSocket.interface(for: $0) }
+            var serviceHost: String?
+            var serviceInterface: String?
+            if let claude, PacketDrop.kind(interface: claude) == .physical {
+                serviceHost = "claude.ai"
+                serviceInterface = claude
+            } else if let chatgpt, PacketDrop.kind(interface: chatgpt) == .physical {
+                serviceHost = "chatgpt.com"
+                serviceInterface = chatgpt
+            }
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 self.routeReadInFlight = false
@@ -113,20 +127,26 @@ final class Watchdog {
                 let reset = self.routeReadResetsInspect
                 self.routeReadAgain = false
                 self.routeReadResetsInspect = false
-                self.handle(interface: probe.interface, physical: probe.physical, resetsInspect: reset)
+                self.handle(
+                    interface: serviceInterface ?? probe.interface,
+                    physical: serviceHost != nil || probe.physical,
+                    serviceHost: serviceHost,
+                    resetsInspect: reset
+                )
                 if again { self.readRoute(resetsInspect: false) }
             }
         }
     }
 
-    private func handle(interface: String?, physical: Bool, resetsInspect: Bool) {
+    private func handle(interface: String?, physical: Bool, serviceHost: String?, resetsInspect: Bool) {
         guard let store else { return }
         if physical && store.guardOn {
             let labels = System.terminateProtected(force: true)
             let name = interface ?? "Wi-Fi"
+            let route = serviceHost.map { "Route to \($0) left the tunnel" } ?? "Route left the tunnel"
             store.note = labels.isEmpty
-                ? "Route left the tunnel (\(name))."
-                : "Guard quit \(Self.list(labels)). Route left the tunnel (\(name))."
+                ? "\(route) (\(name))."
+                : "Guard quit \(Self.list(labels)). \(route) (\(name))."
             store.inspect(keepNote: true)
             return
         }

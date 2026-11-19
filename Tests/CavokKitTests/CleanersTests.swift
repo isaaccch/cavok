@@ -54,6 +54,9 @@ import Testing
     #expect(TraceParse.field("ip", in: trace) == "93.118.41.99")
     #expect(TraceParse.field("loc", in: trace) == "JP")
     #expect(TraceParse.field("missing", in: trace) == nil)
+    #expect(TraceParse.remoteAddress(in: trace + "remote=104.18.2.1") == "104.18.2.1")
+    #expect(TraceParse.remoteAddress(in: trace + "remote=0.0.0.0") == nil)
+    #expect(TraceParse.remoteAddress(in: trace + "remote=") == nil)
 
     let services = """
     An asterisk (*) denotes that a network service is disabled.

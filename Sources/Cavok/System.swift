@@ -26,9 +26,15 @@ struct MachineReport: Sendable {
     var loc: String?
     var traceError: String?
     var traceSkipped = false
+    var claudeRemoteIP: String?
+    var claudeRouteInterface: String?
+    var claudeRouteIsPhysical = false
     var chatgptIP: String?
     var chatgptLoc: String?
     var chatgptError: String?
+    var chatgptRemoteIP: String?
+    var chatgptRouteInterface: String?
+    var chatgptRouteIsPhysical = false
     var ipv6Missing = false
     var ipv6Skipped = false
     var ipv6Claude = IPv6HostResult(host: "claude.ai")
@@ -69,7 +75,7 @@ enum System {
     }
 
     nonisolated static func curlTrace(url: String, ipv6: Bool) -> Exec {
-        var args = ["-sS", "--max-time", "5", url]
+        var args = ["-sS", "--max-time", "5", "-w", "\nremote=%{remote_ip}", url]
         args.insert(ipv6 ? "-6" : "-4", at: 0)
         return run("/usr/bin/curl", args)
     }
@@ -461,6 +467,7 @@ enum Machine {
         if v4r.code == 0 {
             report.ip = TraceParse.field("ip", in: v4r.stdout)
             report.loc = TraceParse.field("loc", in: v4r.stdout)
+            report.claudeRemoteIP = TraceParse.remoteAddress(in: v4r.stdout)
             if report.ip == nil { report.traceError = "claude.ai answered without an IP." }
         } else {
             let reason = v4r.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -469,10 +476,21 @@ enum Machine {
         if gptr.code == 0 {
             report.chatgptIP = TraceParse.field("ip", in: gptr.stdout)
             report.chatgptLoc = TraceParse.field("loc", in: gptr.stdout)
+            report.chatgptRemoteIP = TraceParse.remoteAddress(in: gptr.stdout)
             if report.chatgptIP == nil { report.chatgptError = "chatgpt.com answered without an IP." }
         } else {
             let reason = gptr.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             report.chatgptError = reason.isEmpty ? "Could not reach chatgpt.com." : reason
+        }
+        if let remote = report.claudeRemoteIP {
+            let name = RouteSocket.interface(for: remote)
+            report.claudeRouteInterface = name
+            report.claudeRouteIsPhysical = name.map { RouteParse.isPhysical($0, hardware: hardware) } ?? false
+        }
+        if let remote = report.chatgptRemoteIP {
+            let name = RouteSocket.interface(for: remote)
+            report.chatgptRouteInterface = name
+            report.chatgptRouteIsPhysical = name.map { RouteParse.isPhysical($0, hardware: hardware) } ?? false
         }
         report.claudePage = ReachParse.parse(headCr.stdout)
         report.chatgptPage = ReachParse.parse(headGr.stdout)

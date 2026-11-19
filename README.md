@@ -12,7 +12,7 @@ The point is local hygiene on this machine. Claude and ChatGPT are peers. A spli
 
 Before you open either app, Cavok looks for the ways this Mac can still show a home address, a relay, or a different exit:
 
-- The route to the public internet is Wi-Fi or Ethernet instead of a tunnel. The lookup is `route -n get 1.1.1.1`, because a WireGuard-style tunnel often leaves the literal default route on `en0`.
+- The route to the public internet is Wi-Fi or Ethernet instead of a tunnel. The lookup is `route -n get 1.1.1.1`, because a WireGuard-style tunnel often leaves the literal default route on `en0`. The same lookup is repeated for the address each trace actually reached.
 - `claude.ai` and `chatgpt.com` see different IP addresses or countries. Each row is its own request to `/cdn-cgi/trace`.
 - Either exit is HK, CN, or MO, or either address is not the one you pinned. **Pin this IP** saves the shared address only when both traces returned that same allowed IP.
 - A shell startup file, the login environment, a Claude settings file, or `~/.codex/config.toml` still points at a proxy or a non-official API host. Codex is this config check. It is not an exit row and it is not a login test.
@@ -114,6 +114,7 @@ Guard is the switch in the menu-bar panel and in Settings. Leave it on.
 | What happened | What Guard does |
 |---|---|
 | Surfshark drops, or the route goes back to Wi-Fi | Quits Claude, ChatGPT, `claude`, `codex`, and a child of those processes. The set is taken before the first signal. |
+| The route to claude.ai or chatgpt.com is Wi-Fi or Ethernet | Quits those same apps. |
 | A check actually comes back as HK, CN, or MO | Quits those same apps. |
 | You close the lid | Quits them normally, while the tunnel is still up. |
 | The Mac wakes | Waits 2.5 seconds, then runs a full check. A network change during that wait starts the wait over. |
@@ -166,7 +167,7 @@ swift test
 
 Guard arms this drop when it is on. If the filter is not actually enabled, **Open Claude** and **Open ChatGPT** stay off. A green check still does not mean the account is safe, and this drop does not make the setup compliant.
 
-A routing message, and a later path change, look up `1.1.1.1` on a routing socket in this process. They do not spawn `route` or `networksetup`. If that interface is Wi-Fi or Ethernet and Guard is on, Cavok force-quits the processes below. The first path event is ignored. A change that is still a tunnel waits 2.5 seconds and runs a full check. Electron can still open a new connection before that `SIGKILL` lands. The turnstile below is what stops that new socket. It does not change what a green check means, and it does not make the setup compliant.
+A routing message, and a later path change, look up `1.1.1.1` and the two addresses the stored traces reached on a routing socket in this process. They do not spawn `route` or `networksetup`. If any of those three interfaces is Wi-Fi or Ethernet and Guard is on, Cavok force-quits the processes below. The first path event is ignored. A change that is still a tunnel waits 2.5 seconds and runs a full check. Electron can still open a new connection before that `SIGKILL` lands. The turnstile below is what stops that new socket. It does not change what a green check means, and it does not make the setup compliant.
 
 Picture the Mac as a building with two doors. The tunnel door is Surfshark. The street door is Wi-Fi or Ethernet. Guard today is a person who sees Claude heading for the street and runs over to pull them back. One step can already be on the pavement. That step is the packet. The update puts a turnstile on the street door. Safari, Mail, and Surfshark keep both doors, because Surfshark has to be able to reconnect.
 

@@ -16,6 +16,10 @@ public struct SessionFacts: Equatable, Sendable {
     public var routeIsPhysical: Bool
     public var routeIsTunnel: Bool
     public var routeInterface: String?
+    public var claudeRouteIsPhysical: Bool
+    public var claudeRouteInterface: String?
+    public var chatgptRouteIsPhysical: Bool
+    public var chatgptRouteInterface: String?
     public var claudeIP: String?
     public var claudeLoc: String?
     public var chatgptIP: String?
@@ -35,6 +39,10 @@ public struct SessionFacts: Equatable, Sendable {
         routeIsPhysical: Bool = false,
         routeIsTunnel: Bool = false,
         routeInterface: String? = nil,
+        claudeRouteIsPhysical: Bool = false,
+        claudeRouteInterface: String? = nil,
+        chatgptRouteIsPhysical: Bool = false,
+        chatgptRouteInterface: String? = nil,
         claudeIP: String? = nil,
         claudeLoc: String? = nil,
         chatgptIP: String? = nil,
@@ -53,6 +61,10 @@ public struct SessionFacts: Equatable, Sendable {
         self.routeIsPhysical = routeIsPhysical
         self.routeIsTunnel = routeIsTunnel
         self.routeInterface = routeInterface
+        self.claudeRouteIsPhysical = claudeRouteIsPhysical
+        self.claudeRouteInterface = claudeRouteInterface
+        self.chatgptRouteIsPhysical = chatgptRouteIsPhysical
+        self.chatgptRouteInterface = chatgptRouteInterface
         self.claudeIP = claudeIP
         self.claudeLoc = claudeLoc
         self.chatgptIP = chatgptIP
@@ -128,6 +140,14 @@ public enum SessionGate {
         if facts.routeIsPhysical {
             let name = facts.routeInterface ?? "Wi-Fi"
             return "The IPv4 route is \(name), not the tunnel."
+        }
+        if facts.claudeRouteIsPhysical {
+            let name = facts.claudeRouteInterface ?? "Wi-Fi"
+            return "The route to claude.ai is \(name), not the tunnel."
+        }
+        if facts.chatgptRouteIsPhysical {
+            let name = facts.chatgptRouteInterface ?? "Wi-Fi"
+            return "The route to chatgpt.com is \(name), not the tunnel."
         }
         if let loc = facts.claudeLoc, facts.claudeIP != nil, !RegionGate.allows(loc) {
             return "Claude's exit is \(loc)."

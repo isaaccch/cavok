@@ -130,6 +130,22 @@ private func japanExit() -> ExitReading {
     #expect(!SessionGate.canOpen(facts))
 }
 
+@Test func sessionGateServiceRouteOnPhysicalBlocksOpen() {
+    var claude = sharedExit()
+    claude.pinnedIP = "93.118.41.99"
+    claude.claudeRouteIsPhysical = true
+    claude.claudeRouteInterface = "en0"
+    #expect(SessionGate.blockingReason(claude) == "The route to claude.ai is en0, not the tunnel.")
+    #expect(!SessionGate.canOpen(claude))
+
+    var chatgpt = sharedExit()
+    chatgpt.pinnedIP = "93.118.41.99"
+    chatgpt.chatgptRouteIsPhysical = true
+    chatgpt.chatgptRouteInterface = "en1"
+    #expect(SessionGate.blockingReason(chatgpt) == "The route to chatgpt.com is en1, not the tunnel.")
+    #expect(!SessionGate.canOpen(chatgpt))
+}
+
 @Test func sessionGateBothExitsAllowedWithNoPinStaysClosed() {
     let facts = sharedExit()
     #expect(SessionGate.blockingReason(facts) == nil)
