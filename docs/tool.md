@@ -34,7 +34,7 @@ Each row is one check. A warning is an orange triangle. A clear row is a green c
 
 **Clean leftovers** runs the shell, login-environment, Claude config, and Codex config fixes together. It stays off when those rows are already clear. It does not change IPv6, DNS, the system proxy, the time zone, or the pinned IP.
 
-**Open Claude** opens `Claude.app` if it is installed, otherwise `https://claude.ai`. **Open ChatGPT** opens `ChatGPT.app` if it is installed, otherwise `https://chatgpt.com`. Both stay off until both exits have been read, the countries are the same allowed country, the addresses are equal and pinned, the route is a tunnel, no socket is on Wi-Fi or Ethernet, and none of the Guard reasons below are set. A missing ChatGPT trace leaves both off. A curl challenge does not.
+**Open Claude** opens `Claude.app`. **Open ChatGPT** opens `ChatGPT.app`. If an app is missing, the button says so; it does not open a website. Both stay off until both exits have been read, the countries are the same allowed country, the addresses are equal and pinned, the route is a tunnel, no socket is on Wi-Fi or Ethernet, and none of the Guard reasons below are set. A missing ChatGPT trace leaves both off. A curl challenge does not.
 
 **Guard** is a switch in the menu bar and in Settings. It is on until you turn it off.
 

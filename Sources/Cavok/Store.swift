@@ -337,9 +337,8 @@ final class FixStore {
         if FileManager.default.fileExists(atPath: app.path) {
             NSWorkspace.shared.open(app)
             note = "Opened Claude."
-        } else if let url = URL(string: "https://claude.ai") {
-            NSWorkspace.shared.open(url)
-            note = "Claude.app is not installed. Opened claude.ai."
+        } else {
+            note = "Claude.app is not installed."
         }
     }
 
@@ -349,9 +348,8 @@ final class FixStore {
         if FileManager.default.fileExists(atPath: app.path) {
             NSWorkspace.shared.open(app)
             note = "Opened ChatGPT."
-        } else if let url = URL(string: "https://chatgpt.com") {
-            NSWorkspace.shared.open(url)
-            note = "ChatGPT.app is not installed. Opened chatgpt.com."
+        } else {
+            note = "ChatGPT.app is not installed."
         }
     }
 

@@ -24,7 +24,7 @@ Before you open either app, Cavok looks for the ways this Mac can still show a h
 
 Guard is the part that acts. While it is on, Cavok quits Claude, ChatGPT, `claude`, and `codex` when the route leaves the tunnel, either exit is a bad country, the two exits disagree, a pinned IP no longer matches, a proxy or relay is still set, a Claude or ChatGPT connection is on Wi-Fi or Ethernet, or IPv6 is a real leak. It also quits them when the lid closes, while the tunnel is still up. A timeout, the clock, the locale, a curl challenge, and ordinary DNS do not quit anything.
 
-**Open Claude** and **Open ChatGPT** stay off until both exits have been read and they agree on an allowed address, that shared address is pinned, the route is a tunnel, no socket is on Wi-Fi or Ethernet, and Guard has nothing to quit for. The buttons open the apps, or the websites if the apps are not installed. They do not log in.
+**Open Claude** and **Open ChatGPT** stay off until both exits have been read and they agree on an allowed address, that shared address is pinned, the route is a tunnel, no socket is on Wi-Fi or Ethernet, and Guard has nothing to quit for. The buttons open the installed apps; they do not open a website and do not log in.
 
 ## What the Exit rows are not
 
@@ -136,8 +136,8 @@ Cavok matches `claude`, `claude-code`, and `codex` (including `codex-aarch64-…
 |---|---|
 | Check Again | Runs every row again. |
 | Clean leftovers | Fixes the file and environment rows that are orange. |
-| Open Claude | Opens `Claude.app`, or claude.ai if the app is not installed. |
-| Open ChatGPT | Opens `ChatGPT.app`, or chatgpt.com if the app is not installed. |
+| Open Claude | Opens `Claude.app`. Says `Claude.app is not installed.` when it is missing. |
+| Open ChatGPT | Opens `ChatGPT.app`. Says `ChatGPT.app is not installed.` when it is missing. |
 | Open Window | Brings the main window back. |
 | Quit | Quits Cavok. Claude and ChatGPT keep running. |
 
