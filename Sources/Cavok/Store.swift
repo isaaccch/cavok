@@ -333,8 +333,7 @@ final class FixStore {
             return
         }
         let labels = System.terminateProtected(force: true)
-        guard !labels.isEmpty else { return }
-        if note.isEmpty {
+        if !labels.isEmpty, note.isEmpty {
             note = "Guard quit \(labels.sorted().joined(separator: ", ")). \(reason)"
         }
         guard reason == SessionGate.socketLeakReason else {
