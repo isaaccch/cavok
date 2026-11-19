@@ -175,10 +175,10 @@ public enum SessionGate {
         return nil
     }
 
-    /// Both open buttons. A missing exit stays off. A challenge, time zone, or DNS warning does not.
+    /// Both open buttons. A missing exit or pin stays off. A challenge, time zone, or DNS warning does not.
     public static func canOpen(_ facts: SessionFacts) -> Bool {
         guard blockingReason(facts) == nil else { return false }
-        guard facts.routeIsTunnel, !facts.socketLeak else { return false }
+        guard facts.routeIsTunnel, !facts.socketLeak, facts.pinnedIP != nil else { return false }
         guard let claudeIP = facts.claudeIP, let claudeLoc = facts.claudeLoc, RegionGate.allows(claudeLoc) else { return false }
         guard let chatgptIP = facts.chatgptIP, let chatgptLoc = facts.chatgptLoc, RegionGate.allows(chatgptLoc) else { return false }
         guard claudeIP == chatgptIP, claudeLoc.uppercased() == chatgptLoc.uppercased() else { return false }

@@ -24,7 +24,7 @@ Before you open either app, Cavok looks for the ways this Mac can still show a h
 
 Guard is the part that acts. While it is on, Cavok quits Claude, ChatGPT, `claude`, and `codex` when the route leaves the tunnel, either exit is a bad country, the two exits disagree, a pinned IP no longer matches, a proxy or relay is still set, a Claude or ChatGPT connection is on Wi-Fi or Ethernet, or IPv6 is a real leak. It also quits them when the lid closes, while the tunnel is still up. A timeout, the clock, the locale, a curl challenge, and ordinary DNS do not quit anything.
 
-**Open Claude** and **Open ChatGPT** stay off until both exits have been read and they agree on an allowed address, the route is a tunnel, no socket is on Wi-Fi or Ethernet, and Guard has nothing to quit for. The buttons open the apps, or the websites if the apps are not installed. They do not log in.
+**Open Claude** and **Open ChatGPT** stay off until both exits have been read and they agree on an allowed address, that shared address is pinned, the route is a tunnel, no socket is on Wi-Fi or Ethernet, and Guard has nothing to quit for. The buttons open the apps, or the websites if the apps are not installed. They do not log in.
 
 ## What the Exit rows are not
 
@@ -124,7 +124,7 @@ Guard is the switch in the menu-bar panel and in Settings. Leave it on.
 | A shell file, the login environment, a Claude config, the Codex config, or a system proxy still has a leftover | Quits those same apps. |
 | A Claude or ChatGPT connection is on Wi-Fi or Ethernet | Quits those same apps, then reads the sockets once more. |
 | IPv6 is on Wi-Fi or Ethernet, or either host returned a real IPv6 address in HK, CN, MO, or a different country from that host's IPv4 exit | Quits those same apps. |
-| No pin yet, and both exits are the same allowed country | Nothing is quit. Both exit rows stay orange until you pin that shared address. |
+| No pin yet, and both exits are the same allowed country | Nothing is quit. Both exit rows stay orange until you pin that shared address. Open stays off until then. |
 | The time zone, the locale, a curl challenge, or DNS | Nothing is quit. DNS warns only when a resolver interface is Wi-Fi or Ethernet while the IPv4 route is a tunnel. |
 | A check times out | Nothing is quit. The open buttons stay off until both exits have been read. |
 
@@ -141,7 +141,7 @@ Cavok matches `claude`, `claude-code`, and `codex` (including `codex-aarch64-…
 | Open Window | Brings the main window back. |
 | Quit | Quits Cavok. Claude and ChatGPT keep running. |
 
-Both open buttons use one rule. They stay off until both exits have been read, the countries are the same allowed country, the addresses are equal, the route is a tunnel, no socket is on Wi-Fi or Ethernet, and Guard has nothing to quit for. A missing ChatGPT trace leaves both off. A curl challenge does not.
+Both open buttons use one rule. They stay off until both exits have been read, the countries are the same allowed country, the addresses are equal and pinned, the route is a tunnel, no socket is on Wi-Fi or Ethernet, and Guard has nothing to quit for. A missing ChatGPT trace leaves both off. A curl challenge does not.
 
 ## Settings
 

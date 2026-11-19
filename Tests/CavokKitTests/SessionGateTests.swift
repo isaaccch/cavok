@@ -130,8 +130,15 @@ private func japanExit() -> ExitReading {
     #expect(!SessionGate.canOpen(facts))
 }
 
-@Test func sessionGateBothExitsAllowedWithNoPinCanOpen() {
+@Test func sessionGateBothExitsAllowedWithNoPinStaysClosed() {
     let facts = sharedExit()
+    #expect(SessionGate.blockingReason(facts) == nil)
+    #expect(!SessionGate.canOpen(facts))
+}
+
+@Test func sessionGateBothExitsAllowedWithMatchingPinCanOpen() {
+    var facts = sharedExit()
+    facts.pinnedIP = "93.118.41.99"
     #expect(SessionGate.blockingReason(facts) == nil)
     #expect(SessionGate.canOpen(facts))
 }

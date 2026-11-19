@@ -137,9 +137,17 @@ final class FixStore {
         if !preview && guardOn && !packetDropArmed {
             return packetDropLine
         }
-        return canOpen
-            ? "Open while Claude and ChatGPT share this exit."
-            : "Stays off until both exits match an allowed country on the tunnel, with no leak, leftover, or socket on Wi-Fi or Ethernet."
+        if canOpen {
+            return "Open while Claude and ChatGPT share this exit."
+        }
+        var check = facts()
+        if check.pinnedIP == nil, let ip = check.claudeIP {
+            check.pinnedIP = ip
+            if SessionGate.canOpen(check) {
+                return "Pin the shared exit first. Open turns on after that."
+            }
+        }
+        return "Stays off until both exits match an allowed country on the tunnel, with no leak, leftover, or socket on Wi-Fi or Ethernet."
     }
 
     init(preview: Bool = ProcessInfo.processInfo.environment["APP_SNAPSHOT"] != nil) {
