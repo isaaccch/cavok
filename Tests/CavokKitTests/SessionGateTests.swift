@@ -65,6 +65,48 @@ private func sharedExit() -> SessionFacts {
     #expect(!SessionGate.canOpen(otherCountry))
 }
 
+private func japanExit() -> ExitReading {
+    ExitReading(claudeIP: "93.118.41.99", claudeLoc: "JP", chatgptIP: "93.118.41.99", chatgptLoc: "JP")
+}
+
+@Test func exitDriftSameReadingIsNotAChange() {
+    let seen = japanExit()
+    #expect(!ExitDrift.changed(from: seen, to: seen))
+    var lower = seen
+    lower.claudeLoc = "jp"
+    lower.chatgptLoc = "jp"
+    #expect(!ExitDrift.changed(from: seen, to: lower))
+}
+
+@Test func exitDriftNewAddressOrCountryIsAChange() {
+    var newClaude = japanExit()
+    newClaude.claudeIP = "1.1.1.1"
+    #expect(ExitDrift.changed(from: japanExit(), to: newClaude))
+
+    var newCountry = japanExit()
+    newCountry.chatgptLoc = "US"
+    #expect(ExitDrift.changed(from: japanExit(), to: newCountry))
+}
+
+@Test func exitDriftTimeoutIsNotAChange() {
+    var timedOut = japanExit()
+    timedOut.claudeIP = nil
+    timedOut.claudeLoc = nil
+    #expect(!ExitDrift.changed(from: japanExit(), to: timedOut))
+
+    #expect(!ExitDrift.changed(from: japanExit(), to: ExitReading()))
+}
+
+@Test func exitDriftAnswerAfterAMissIsAChange() {
+    #expect(ExitDrift.changed(from: ExitReading(), to: japanExit()))
+
+    let onlyClaude = ExitReading(claudeIP: "93.118.41.99", claudeLoc: "JP")
+    var withChatGPT = onlyClaude
+    withChatGPT.chatgptIP = "93.118.41.99"
+    withChatGPT.chatgptLoc = "JP"
+    #expect(ExitDrift.changed(from: onlyClaude, to: withChatGPT))
+}
+
 @Test func sessionGateBothExitsAllowedWithNoPinCanOpen() {
     let facts = sharedExit()
     #expect(SessionGate.blockingReason(facts) == nil)

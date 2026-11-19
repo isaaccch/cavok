@@ -372,6 +372,25 @@ enum ConfigFiles {
 }
 
 enum Machine {
+    /// The two IPv4 traces only. A failed request leaves that host empty.
+    nonisolated static func traceExits() async -> ExitReading {
+        async let claude = System.curlTrace(url: "https://claude.ai/cdn-cgi/trace", ipv6: false)
+        async let chatgpt = System.curlTrace(url: "https://chatgpt.com/cdn-cgi/trace", ipv6: false)
+        let claudeResult = await claude
+        let chatgptResult = await chatgpt
+        return ExitReading(
+            claudeIP: traceField("ip", claudeResult),
+            claudeLoc: traceField("loc", claudeResult),
+            chatgptIP: traceField("ip", chatgptResult),
+            chatgptLoc: traceField("loc", chatgptResult)
+        )
+    }
+
+    nonisolated private static func traceField(_ name: String, _ result: Exec) -> String? {
+        guard result.code == 0 else { return nil }
+        return TraceParse.field(name, in: result.stdout)
+    }
+
     nonisolated static func inspect(home: URL, workspaceRoots: [URL] = []) async -> MachineReport {
         let shell = HomeFiles.scan(home)
         let configs = ConfigFiles.hits(home: home, roots: workspaceRoots)

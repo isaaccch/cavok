@@ -116,6 +116,8 @@ Guard is the switch in the menu-bar panel and in Settings. Leave it on.
 | Surfshark drops, or the route goes back to Wi-Fi | Quits Claude, ChatGPT, `claude`, `codex`, and a child of those processes. The set is taken before the first signal. |
 | A check actually comes back as HK, CN, or MO | Quits those same apps. |
 | You close the lid | Quits them normally, while the tunnel is still up. |
+| The Mac wakes | Waits 2.5 seconds, then runs a full check. A network change during that wait starts the wait over. |
+| The tunnel stays up and five minutes pass | Reads both exits again. A full check runs only when an address or country changed. A timeout changes nothing. |
 | You open Claude or ChatGPT while the check is already bad | Quits them again. |
 | A pin is set and either exit is a different IP, including another Japan IP | Quits those same apps. |
 | Claude and ChatGPT were both read and the addresses differ | Quits those same apps. |

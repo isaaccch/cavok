@@ -70,6 +70,49 @@ public struct SessionFacts: Equatable, Sendable {
     }
 }
 
+/// One pair of IPv4 exits. A nil field means that host did not answer.
+public struct ExitReading: Equatable, Sendable {
+    public var claudeIP: String?
+    public var claudeLoc: String?
+    public var chatgptIP: String?
+    public var chatgptLoc: String?
+
+    public init(
+        claudeIP: String? = nil,
+        claudeLoc: String? = nil,
+        chatgptIP: String? = nil,
+        chatgptLoc: String? = nil
+    ) {
+        self.claudeIP = claudeIP
+        self.claudeLoc = claudeLoc
+        self.chatgptIP = chatgptIP
+        self.chatgptLoc = chatgptLoc
+    }
+}
+
+public enum ExitDrift {
+    /// True when a host that answered differs from the last reading.
+    /// A host that did not answer is not a change. An answer after a miss is.
+    public static func changed(from previous: ExitReading, to next: ExitReading) -> Bool {
+        hostChanged(previous.claudeIP, previous.claudeLoc, next.claudeIP, next.claudeLoc)
+            || hostChanged(previous.chatgptIP, previous.chatgptLoc, next.chatgptIP, next.chatgptLoc)
+    }
+
+    private static func hostChanged(
+        _ previousIP: String?,
+        _ previousLoc: String?,
+        _ nextIP: String?,
+        _ nextLoc: String?
+    ) -> Bool {
+        guard let nextIP else { return false }
+        guard let previousIP else { return true }
+        if previousIP != nextIP { return true }
+        guard let nextLoc else { return false }
+        guard let previousLoc else { return true }
+        return previousLoc.uppercased() != nextLoc.uppercased()
+    }
+}
+
 public enum SessionGate {
     /// Why Guard should quit, or nil when this reading is not a block.
     /// A missing trace, a time zone, a curl challenge, and DNS are not reasons.

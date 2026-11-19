@@ -81,6 +81,22 @@ final class FixStore {
         SessionGate.blockingReason(facts())
     }
 
+    var routeIsTunnel: Bool {
+        report.routeIsTunnel
+    }
+
+    func exitDrifted(_ seen: ExitReading) -> Bool {
+        ExitDrift.changed(
+            from: ExitReading(
+                claudeIP: report.ip,
+                claudeLoc: report.loc,
+                chatgptIP: report.chatgptIP,
+                chatgptLoc: report.chatgptLoc
+            ),
+            to: seen
+        )
+    }
+
     var menuSymbol: String {
         if busy { return "arrow.clockwise" }
         if rows.values.contains(where: { $0.tone == .warn }) { return "exclamationmark.triangle" }
