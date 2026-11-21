@@ -10,7 +10,8 @@ int cavok_route_interface(const char *address, char *name, int name_len);
 /// True when a routing socket can be opened.
 bool cavok_route_socket_ok(void);
 
-/// Reads one process. `command` is the executable and its arguments, separated by spaces.
+/// Reads one process. `command` is the executable and its arguments, each followed by U+001F
+/// (0x1F). The trailing separator keeps a path that contains a space one token.
 int cavok_proc_read(int32_t pid, int32_t *ppid, uint64_t *start_sec, uint64_t *start_usec, char *command, int command_len);
 
 /// Writes up to `capacity` pids. Returns how many were written.

@@ -58,7 +58,11 @@ sed -e "s/__BUILD__/$build_id/" "$here/Info-filter.plist.in" > "$ext/Contents/In
 xattr -cr "$app"
 
 filter_signed=0
-if [[ "$identity" != "-" ]]; then
+app_profile="${CAVOK_APP_PROFILE:-}"
+filter_profile="${CAVOK_FILTER_PROFILE:-}"
+if [[ "$identity" != "-" && -f "$app_profile" && -f "$filter_profile" ]]; then
+  cp "$filter_profile" "$ext/Contents/embedded.provisionprofile"
+  cp "$app_profile" "$app/Contents/embedded.provisionprofile"
   set +e
   codesign --force --sign "$identity" --entitlements "$here/CavokGuardFilter.entitlements" "$ext" >/tmp/cavok-sign-filter.txt 2>&1
   filter_status=$?
@@ -71,6 +75,7 @@ if [[ "$identity" != "-" ]]; then
 fi
 if [[ $filter_signed -eq 0 ]]; then
   rm -rf "$app/Contents/Library"
+  rm -f "$app/Contents/embedded.provisionprofile"
   codesign --force --sign "$identity" "$app" 2>&1 | grep -v "replacing existing signature" || true
   echo "packet drop is not signed. Guard will show that it is not armed."
 else

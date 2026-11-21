@@ -151,7 +151,8 @@ public struct ProtectedProcess: Equatable, Sendable {
 }
 
 public enum ProcessMatch {
-    /// `ps -axww -o pid=,args=`. Match argv0, or the script when argv0 is `node`. Argument text on vim, grep, man, or git does not match.
+    /// `ps -axww -o pid=,args=`. Match argv0, or a later argument when argv0 is `node`, `bun`, or `npx`.
+    /// Argument text on vim, grep, man, or git does not match.
     public static func protected(in text: String) -> [ProtectedProcess] {
         var found: [ProtectedProcess] = []
         var seen: Set<Int32> = []
@@ -175,18 +176,33 @@ public enum ProcessMatch {
     /// The quit note for a matched command, or the program name of a child.
     public static func quitName(for command: String) -> String {
         if let label = label(for: command) { return label }
-        let tokens = command.split(whereSeparator: \.isWhitespace).map(String.init)
+        let tokens = tokens(in: command)
         guard let argv0 = tokens.first else { return "process" }
         return baseName(argv0)
     }
 
     static func label(for command: String) -> String? {
-        let tokens = command.split(whereSeparator: \.isWhitespace).map(String.init)
+        let tokens = tokens(in: command)
         guard let argv0 = tokens.first else { return nil }
         if let label = program(argv0) { return label }
-        guard baseName(argv0) == "node" else { return nil }
-        guard let script = tokens.dropFirst().first(where: { !$0.hasPrefix("-") }) else { return nil }
-        return program(script)
+        let name = baseName(argv0)
+        guard name == "node" || name == "bun" || name == "npx" else { return nil }
+        return tokens.dropFirst().lazy.compactMap(wrapperArgument).first
+    }
+
+    /// `proc.c` ends every argument with U+001F, so a path containing a space stays one token.
+    /// A `ps` line has no separator and splits on whitespace.
+    private static func tokens(in command: String) -> [String] {
+        if command.contains("\u{1F}") {
+            return command.split(separator: "\u{1F}").map(String.init)
+        }
+        return command.split(whereSeparator: \.isWhitespace).map(String.init)
+    }
+
+    /// A wrapper argument is a program only when it names a path. A bare word is data, not a program.
+    private static func wrapperArgument(_ path: String) -> String? {
+        guard path.contains("/") else { return nil }
+        return program(path)
     }
 
     private static func program(_ path: String) -> String? {
@@ -194,7 +210,7 @@ public enum ProcessMatch {
         if path.contains("ChatGPT.app") { return "ChatGPT" }
         let base = baseName(path)
         if base == "claude" || base == "claude-code" { return "claude" }
-        if base == "codex" || base.hasPrefix("codex-aarch64") { return "codex" }
+        if base == "codex" || base.hasPrefix("codex-aarch64") || base.hasPrefix("codex-x86_64") { return "codex" }
         if path.contains("@anthropic-ai/claude-code/") && path.contains("cli.js") { return "claude" }
         if path.hasSuffix("/claude/cli.js") { return "claude" }
         return nil

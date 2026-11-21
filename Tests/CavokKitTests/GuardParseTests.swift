@@ -88,10 +88,51 @@ import Testing
       22 node /opt/homebrew/bin/codex
       23 grep codex
       24 node --experimental-strip-types /opt/homebrew/bin/claude-code
+      25 node\u{1F}--max-old-space-size\u{1F}4096\u{1F}/Users/me/.npm/_npx/x/node_modules/@anthropic-ai/claude-code/cli.js
+      26 bun\u{1F}/Users/me/Library/Application Support/claude/cli.js
+      27 npx\u{1F}/Users/me/.local/share/claude/cli.js
+      28 /Users/me/.npm/codex-x86_64-apple-darwin
+      29 vim\u{1F}claude\u{1F}/Users/me/notes.txt
+      30 npx cowsay claude
+      31 node --title claude
+      32 /Users/me/Library/Application Support/claude\u{1F}
+      33 npx @anthropic-ai/claude-code
     """
     let found = ProcessMatch.protected(in: ps)
-    #expect(found.map(\.pid) == [10, 11, 12, 13, 20, 21, 22, 24])
-    #expect(found.map(\.label) == ["claude", "codex", "Claude", "ChatGPT", "claude", "claude", "codex", "claude"])
+    #expect(found.map(\.pid) == [10, 11, 12, 13, 20, 21, 22, 24, 25, 26, 27, 28, 32, 33])
+    #expect(found.map(\.label) == ["claude", "codex", "Claude", "ChatGPT", "claude", "claude", "codex", "claude", "claude", "claude", "claude", "codex", "claude", "claude"])
+    #expect(ProcessMatch.quitName(for: "zsh\u{1F}-lc\u{1F}curl https://example.com") == "zsh")
+}
+
+@Test func aSingleSpacedPathStaysOneToken() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("cavok spaced \(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let executable = directory.appendingPathComponent("claude")
+    try FileManager.default.createSymbolicLink(at: executable, withDestinationURL: URL(fileURLWithPath: "/bin/cat"))
+    let child = Process()
+    child.executableURL = executable
+    let input = Pipe()
+    child.standardInput = input
+    child.standardOutput = Pipe()
+    child.standardError = Pipe()
+    try child.run()
+    defer {
+        if child.isRunning { child.terminate() }
+        child.waitUntilExit()
+        try? input.fileHandleForWriting.close()
+    }
+    let deadline = Date().addingTimeInterval(3)
+    var command: String?
+    while Date() < deadline {
+        command = ProcessTable.snap(child.processIdentifier)?.command
+        if command?.contains("claude") == true { break }
+        Thread.sleep(forTimeInterval: 0.02)
+    }
+    let seen = try #require(command)
+    #expect(seen == executable.path + "\u{1F}")
+    #expect(ProcessMatch.matches(seen))
 }
 
 @Test func claudeJsonDropsRelayInsideMcpEnv() throws {

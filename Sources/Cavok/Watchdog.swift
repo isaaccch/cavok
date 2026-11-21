@@ -11,6 +11,7 @@ final class Watchdog {
     private let queue = DispatchQueue(label: "cavok.watchdog")
     private var debounce: Task<Void, Never>?
     private var killLoop: Task<Void, Never>?
+    private var killLoopGeneration = 0
     private var recheckLoop: Task<Void, Never>?
     private var sawFirstPath = false
     private var routeReadInFlight = false
@@ -68,17 +69,23 @@ final class Watchdog {
         let shouldRun = store?.guardOn == true && store?.blockingReason != nil
         if shouldRun {
             guard killLoop == nil else { return }
+            killLoopGeneration += 1
+            let generation = killLoopGeneration
             killLoop = Task { @MainActor [weak self] in
                 while !Task.isCancelled {
-                    try? await Task.sleep(for: .milliseconds(250))
-                    guard let self, let store = self.store, store.guardOn, store.blockingReason != nil else { break }
+                    try? await Task.sleep(for: .seconds(1))
+                    guard !Task.isCancelled, let self, let store = self.store, store.guardOn, store.blockingReason != nil else { break }
                     _ = await Task.detached {
-                        System.terminateProtected(force: true)
+                        System.terminateProtectedProcesses(force: true)
                     }.value
+                    _ = System.terminateProtectedApps(force: true)
                 }
-                self?.killLoop = nil
+                if let self, self.killLoopGeneration == generation {
+                    self.killLoop = nil
+                }
             }
         } else {
+            killLoopGeneration += 1
             killLoop?.cancel()
             killLoop = nil
         }

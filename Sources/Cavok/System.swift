@@ -93,31 +93,57 @@ enum System {
     }
 
     /// Quits Claude, ChatGPT, claude, codex, and a child of those processes.
-    /// The set is taken before the first signal. `force` is SIGKILL. Sleep uses a normal quit.
+    /// The process set is taken before the first signal. `force` is SIGKILL. Sleep uses a normal quit.
+    /// The app list is read before the first signal too, so the quit note keeps its names.
+    @MainActor
     @discardableResult
-    nonisolated static func terminateProtected(force: Bool) -> [String] {
+    static func terminateProtected(force: Bool) -> [String] {
+        let apps = protectedApps()
+        let processLabels = terminateProtectedProcesses(force: force)
+        return Array(Set(processLabels + quitApps(apps, force: force))).sorted()
+    }
+
+    /// Quits Claude.app and ChatGPT.app on the main actor. `runningApplications` is AppKit.
+    @MainActor
+    @discardableResult
+    static func terminateProtectedApps(force: Bool) -> [String] {
+        quitApps(protectedApps(), force: force)
+    }
+
+    /// The process-table scan and `kill`, with no AppKit. The kill loop runs this off the main actor.
+    @discardableResult
+    nonisolated static func terminateProtectedProcesses(force: Bool) -> [String] {
         let selfPid = ProcessInfo.processInfo.processIdentifier
         let snaps = ProcessTable.allSnaps()
         let protected = snaps.values.filter { $0.pid != selfPid && PacketDrop.isProtected(pid: $0.pid, snaps: snaps) }
-        let apps = NSWorkspace.shared.runningApplications.filter { app in
-            let path = app.bundleURL?.path ?? ""
-            return path.contains("Claude.app") || path.contains("ChatGPT.app")
-        }
         let signal: Int32 = force ? SIGKILL : SIGTERM
         for snap in protected {
             kill(snap.pid, signal)
         }
+        return protected.map { ProcessMatch.quitName(for: $0.command) }
+    }
+
+    @MainActor
+    private static func protectedApps() -> [NSRunningApplication] {
+        NSWorkspace.shared.runningApplications.filter { app in
+            let path = app.bundleURL?.path ?? ""
+            return path.contains("Claude.app") || path.contains("ChatGPT.app")
+        }
+    }
+
+    @MainActor
+    private static func quitApps(_ apps: [NSRunningApplication], force: Bool) -> [String] {
         for app in apps {
             if force { app.forceTerminate() } else { app.terminate() }
         }
-        var labels = protected.map { ProcessMatch.quitName(for: $0.command) }
-        if apps.contains(where: { $0.bundleURL?.path.contains("Claude.app") == true }), !labels.contains("Claude") {
+        var labels: [String] = []
+        if apps.contains(where: { $0.bundleURL?.path.contains("Claude.app") == true }) {
             labels.append("Claude")
         }
-        if apps.contains(where: { $0.bundleURL?.path.contains("ChatGPT.app") == true }), !labels.contains("ChatGPT") {
+        if apps.contains(where: { $0.bundleURL?.path.contains("ChatGPT.app") == true }) {
             labels.append("ChatGPT")
         }
-        return Array(Set(labels)).sorted()
+        return labels
     }
 
     nonisolated static func socketLeaks() -> [SocketLeak] {

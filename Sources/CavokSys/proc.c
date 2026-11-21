@@ -37,21 +37,16 @@ int cavok_proc_pids(int32_t *pids, int capacity) {
     return copy;
 }
 
-static void cavok_copy(char *destination, int destination_len, const char *source) {
-    if (destination_len <= 0) return;
-    if (source == NULL) {
-        destination[0] = '\0';
-        return;
-    }
-    strlcpy(destination, source, (size_t)destination_len);
-}
-
 static void cavok_append(char *destination, int destination_len, const char *piece) {
     if (destination_len <= 0 || piece == NULL || piece[0] == '\0') return;
     size_t used = strlen(destination);
-    if ((int)used >= destination_len - 1) return;
-    if (used > 0) strlcat(destination, " ", (size_t)destination_len);
-    strlcat(destination, piece, (size_t)destination_len);
+    if ((int)used >= destination_len - 2) return;
+    size_t room = (size_t)destination_len - used - 2;
+    size_t length = strlen(piece);
+    if (length > room) length = room;
+    memcpy(destination + used, piece, length);
+    destination[used + length] = '\x1F';
+    destination[used + length + 1] = '\0';
 }
 
 /// `KERN_PROCARGS2` is argc, the executable path, padding NULs, then the argument strings.
@@ -91,7 +86,7 @@ int cavok_proc_read(int32_t pid, int32_t *ppid, uint64_t *start_sec, uint64_t *s
     cavok_arguments(pid, command, command_len);
     if (command[0] == '\0') {
         char path[PROC_PIDPATHINFO_MAXSIZE];
-        if (proc_pidpath(pid, path, sizeof(path)) > 0) cavok_copy(command, command_len, path);
+        if (proc_pidpath(pid, path, sizeof(path)) > 0) cavok_append(command, command_len, path);
     }
     return command[0] == '\0' ? -1 : 0;
 }

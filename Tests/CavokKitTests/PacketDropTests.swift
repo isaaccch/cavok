@@ -43,9 +43,16 @@ private func snap(_ pid: Int32, _ ppid: Int32, _ command: String, start: UInt64 
         21: snap(21, 1, "/usr/bin/grep claude file"),
         30: snap(30, 1, "/usr/local/bin/node /pkg/@anthropic-ai/claude-code/cli.js"),
         31: snap(31, 1, "/usr/local/bin/node /pkg/other.js"),
+        32: snap(32, 1, "/usr/local/bin/node\u{1F}--max-old-space-size\u{1F}4096\u{1F}/Users/me/Library/Application Support/@anthropic-ai/claude-code/cli.js"),
+        33: snap(33, 1, "vim\u{1F}claude\u{1F}file"),
+        34: snap(34, 1, "bun\u{1F}/Users/me/.local/share/claude/cli.js"),
+        35: snap(35, 1, "npx\u{1F}/pkg/@anthropic-ai/claude-code/cli.js"),
+        36: snap(36, 1, "/Users/me/Library/Application Support/claude\u{1F}"),
+        37: snap(37, 1, "npx cowsay claude"),
         40: snap(40, 1, "/usr/sbin/mDNSResponder"),
         50: snap(50, 1, "/opt/codex-aarch64-apple-darwin"),
         51: snap(51, 50, "/usr/bin/python3 -m tool"),
+        52: snap(52, 1, "/opt/codex-x86_64-apple-darwin"),
     ]
     #expect(PacketDrop.isProtected(pid: 10, snaps: snaps))
     #expect(PacketDrop.isProtected(pid: 12, snaps: snaps))
@@ -55,8 +62,15 @@ private func snap(_ pid: Int32, _ ppid: Int32, _ command: String, start: UInt64 
     #expect(!PacketDrop.isProtected(pid: 21, snaps: snaps))
     #expect(PacketDrop.isProtected(pid: 30, snaps: snaps))
     #expect(!PacketDrop.isProtected(pid: 31, snaps: snaps))
+    #expect(PacketDrop.isProtected(pid: 32, snaps: snaps))
+    #expect(!PacketDrop.isProtected(pid: 33, snaps: snaps))
+    #expect(PacketDrop.isProtected(pid: 34, snaps: snaps))
+    #expect(PacketDrop.isProtected(pid: 35, snaps: snaps))
+    #expect(PacketDrop.isProtected(pid: 36, snaps: snaps))
+    #expect(!PacketDrop.isProtected(pid: 37, snaps: snaps))
     #expect(!PacketDrop.isProtected(pid: 40, snaps: snaps))
     #expect(PacketDrop.isProtected(pid: 51, snaps: snaps))
+    #expect(PacketDrop.isProtected(pid: 52, snaps: snaps))
     let cache = ProtectionCache()
     let lookup: (Int32) -> ProcSnap? = { snaps[$0] }
     #expect(PacketDrop.protection(pid: 13, snap: lookup, cache: cache) == .protected)

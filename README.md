@@ -163,7 +163,7 @@ swift test
 ./build.sh --open
 ```
 
-`./build.sh` installs `/Applications/Cavok.app`. `--open` quits the running copy and opens the new one. If the content-filter entitlement is not on the signing identity, the menu-bar app still installs and the packet drop stays off.
+`./build.sh` installs `/Applications/Cavok.app`. `--open` quits the running copy and opens the new one. If the content-filter entitlement is not on the signing identity, the menu-bar app still installs and the packet drop stays off. The packet drop is included only when both `CAVOK_APP_PROFILE` and `CAVOK_FILTER_PROFILE` point at provisioning profiles.
 
 ## Packet drop on the street door
 
